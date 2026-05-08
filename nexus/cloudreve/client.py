@@ -46,6 +46,7 @@ class CloudreveClient:
         if endpoint == "/api/v4/file/events" and status_code == 502:
             message = (
                 f"{message} The events stream usually needs a valid Cloudreve API bearer token. "
+                "It also expects X-Cr-Client-Id to be a UUID. "
                 "If CLOUDREVE_TOKEN came from /api/v4/session/authn, that value is only a WebAuthn "
                 "challenge and cannot authenticate the worker."
             )

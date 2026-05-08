@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import uuid
 
 
 def _read_dotenv(path: str = ".env") -> dict[str, str]:
@@ -27,7 +28,7 @@ def _read_dotenv(path: str = ".env") -> dict[str, str]:
 class Settings:
     cloudreve_base_url: str = "http://cloudreve:5212"
     cloudreve_token: str | None = None
-    cloudreve_client_id: str = "knowledge-nexus-worker"
+    cloudreve_client_id: str = str(uuid.uuid5(uuid.NAMESPACE_URL, "knowledge-nexus-worker"))
     database_url: str = "postgresql://admin:admin123@localhost:5433/smart_building"
     redis_url: str = "redis://localhost:6380/0"
     neo4j_uri: str = "bolt://localhost:7687"

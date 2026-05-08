@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 from nexus.settings import Settings
@@ -32,7 +33,7 @@ def test_settings_default_cloudreve_client_id(monkeypatch):
 
     settings = Settings.from_env()
 
-    assert settings.cloudreve_client_id == "knowledge-nexus-worker"
+    assert str(uuid.UUID(settings.cloudreve_client_id)) == settings.cloudreve_client_id
 
 
 def test_settings_loads_values_from_dotenv_file(monkeypatch, tmp_path):
