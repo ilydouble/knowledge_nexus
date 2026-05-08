@@ -81,6 +81,7 @@ class CloudreveClient:
 
     async def iter_file_events(self, uri: str = "cloudreve://my", client_id: str | None = None) -> AsyncIterator[dict[str, Any]]:
         headers = self._headers()
+        headers["Accept"] = "text/event-stream"
         if client_id:
             headers["X-Cr-Client-Id"] = client_id
         async with httpx.AsyncClient(base_url=self.base_url, timeout=None, headers=headers) as client:

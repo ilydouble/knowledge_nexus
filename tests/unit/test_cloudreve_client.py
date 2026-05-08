@@ -37,6 +37,8 @@ def test_cloudreve_client_uses_settings_default_base_url(monkeypatch):
 
 
 def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
+    seen = {}
+
     class FakeStreamResponse:
         def __init__(self):
             self.request = httpx.Request("GET", "http://localhost:5212/api/v4/file/events")
@@ -53,7 +55,7 @@ def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
 
     class FakeAsyncClient:
         def __init__(self, *args, **kwargs):
-            pass
+            seen["headers"] = kwargs.get("headers", {})
 
         async def __aenter__(self):
             return self
@@ -75,6 +77,7 @@ def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
     with pytest.raises(CloudreveError) as exc:
         asyncio.run(consume())
 
+    assert seen["headers"]["Accept"] == "text/event-stream"
     assert exc.value.code == 502
     assert "CLOUDREVE_TOKEN" in str(exc.value)
     assert "/session/authn" in str(exc.value)
