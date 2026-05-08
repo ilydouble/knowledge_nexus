@@ -2,6 +2,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
+
+
+def _read_dotenv(path: str = ".env") -> dict[str, str]:
+    env_path = Path(path)
+    if not env_path.is_file():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key:
+            values[key] = value
+    return values
 
 
 @dataclass(frozen=True)
@@ -25,21 +44,26 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        dotenv = _read_dotenv()
+
+        def env(name: str, default: str | None = None) -> str | None:
+            return os.getenv(name, dotenv.get(name, default))
+
         return cls(
-            cloudreve_base_url=os.getenv("CLOUDREVE_BASE_URL", cls.cloudreve_base_url),
-            cloudreve_token=os.getenv("CLOUDREVE_TOKEN") or None,
-            cloudreve_client_id=os.getenv("CLOUDREVE_CLIENT_ID", cls.cloudreve_client_id),
-            database_url=os.getenv("DATABASE_URL", cls.database_url),
-            redis_url=os.getenv("REDIS_URL", cls.redis_url),
-            neo4j_uri=os.getenv("NEO4J_URI", cls.neo4j_uri),
-            neo4j_user=os.getenv("NEO4J_USER", cls.neo4j_user),
-            neo4j_password=os.getenv("NEO4J_PASSWORD", cls.neo4j_password),
-            vector_backend=os.getenv("VECTOR_BACKEND", cls.vector_backend),
-            milvus_host=os.getenv("MILVUS_HOST", cls.milvus_host),
-            milvus_port=int(os.getenv("MILVUS_PORT", str(cls.milvus_port))),
-            minio_endpoint=os.getenv("MINIO_ENDPOINT", cls.minio_endpoint),
-            minio_access_key=os.getenv("MINIO_ACCESS_KEY", cls.minio_access_key),
-            minio_secret_key=os.getenv("MINIO_SECRET_KEY", cls.minio_secret_key),
-            openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-            nexus_storage_backend=os.getenv("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend),
+            cloudreve_base_url=env("CLOUDREVE_BASE_URL", cls.cloudreve_base_url) or cls.cloudreve_base_url,
+            cloudreve_token=env("CLOUDREVE_TOKEN") or None,
+            cloudreve_client_id=env("CLOUDREVE_CLIENT_ID", cls.cloudreve_client_id) or cls.cloudreve_client_id,
+            database_url=env("DATABASE_URL", cls.database_url) or cls.database_url,
+            redis_url=env("REDIS_URL", cls.redis_url) or cls.redis_url,
+            neo4j_uri=env("NEO4J_URI", cls.neo4j_uri) or cls.neo4j_uri,
+            neo4j_user=env("NEO4J_USER", cls.neo4j_user) or cls.neo4j_user,
+            neo4j_password=env("NEO4J_PASSWORD", cls.neo4j_password) or cls.neo4j_password,
+            vector_backend=env("VECTOR_BACKEND", cls.vector_backend) or cls.vector_backend,
+            milvus_host=env("MILVUS_HOST", cls.milvus_host) or cls.milvus_host,
+            milvus_port=int(env("MILVUS_PORT", str(cls.milvus_port)) or str(cls.milvus_port)),
+            minio_endpoint=env("MINIO_ENDPOINT", cls.minio_endpoint) or cls.minio_endpoint,
+            minio_access_key=env("MINIO_ACCESS_KEY", cls.minio_access_key) or cls.minio_access_key,
+            minio_secret_key=env("MINIO_SECRET_KEY", cls.minio_secret_key) or cls.minio_secret_key,
+            openai_api_key=env("OPENAI_API_KEY") or None,
+            nexus_storage_backend=env("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend) or cls.nexus_storage_backend,
         )
