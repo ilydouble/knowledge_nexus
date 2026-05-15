@@ -11,6 +11,7 @@ from nexus.app_factory import build_repository
 from nexus.services.events import FileEventHandler
 from nexus.services.ingestion import IngestionService
 from nexus.services.pipeline import SemanticPipeline
+from nexus.services.scanner import CloudreveScanner
 from nexus.settings import Settings
 
 
@@ -33,6 +34,7 @@ class Worker:
         self.ingestion = IngestionService(self.repository)
         self.handler = FileEventHandler(self.repository)
         self.client = CloudreveClient()
+        self.scanner = CloudreveScanner(self.client, self.repository)
         self.pipeline: SemanticPipeline | None = None
         self._initialized = False
     
@@ -157,24 +159,55 @@ class Worker:
                 # Process through pipeline
                 await self.process_event(evt)
 
-    async def run_forever(self, reconnect_delay_seconds: float = 5.0) -> None:
-        """Keep the worker alive across SSE disconnects."""
+    async def scan_loop(self, interval_seconds: float = 600.0) -> None:
+        """Periodically scan Cloudreve for new files and queue them.
+
+        Runs an initial scan immediately on startup, then repeats every
+        *interval_seconds* (default 10 minutes).  Errors are logged and
+        swallowed so the loop never dies from a transient failure.
+        """
+        logger.info("Periodic scanner starting (interval: %.0fs)", interval_seconds)
         while True:
             try:
-                await self.run()
-                logger.warning(
-                    "Cloudreve event stream closed; reconnecting in %.1fs",
-                    reconnect_delay_seconds,
+                result = await self.scanner.scan(requested_by="periodic-scanner")
+                logger.info(
+                    "Periodic scan finished: %d files found, %d newly queued",
+                    result.files_found,
+                    result.files_queued,
                 )
-            except KeyboardInterrupt:
-                raise
             except Exception as exc:
-                logger.error(
-                    "Worker event loop failed: %s; reconnecting in %.1fs",
-                    exc,
-                    reconnect_delay_seconds,
-                )
-            await asyncio.sleep(reconnect_delay_seconds)
+                logger.error("Periodic scan error: %s", exc)
+            await asyncio.sleep(interval_seconds)
+
+    async def run_forever(
+        self,
+        reconnect_delay_seconds: float = 5.0,
+        scan_interval_seconds: float = 600.0,
+    ) -> None:
+        """Keep the worker alive, running the SSE listener and periodic scanner concurrently."""
+
+        async def _sse_loop() -> None:
+            while True:
+                try:
+                    await self.run()
+                    logger.warning(
+                        "Cloudreve event stream closed; reconnecting in %.1fs",
+                        reconnect_delay_seconds,
+                    )
+                except KeyboardInterrupt:
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "Worker event loop failed: %s; reconnecting in %.1fs",
+                        exc,
+                        reconnect_delay_seconds,
+                    )
+                await asyncio.sleep(reconnect_delay_seconds)
+
+        await asyncio.gather(
+            _sse_loop(),
+            self.scan_loop(scan_interval_seconds),
+        )
 
 
 async def watch_cloudreve_events() -> None:

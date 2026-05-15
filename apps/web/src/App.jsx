@@ -59,6 +59,7 @@ function App() {
   const [answer, setAnswer] = useState(null);
   const [authStatus, setAuthStatus] = useState({ authorized: false });
   const [authConfig, setAuthConfig] = useState({ configured: false });
+  const [scanStatus, setScanStatus] = useState({ status: "idle", files_found: 0, files_queued: 0, is_scanning: false });
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
   const [editingOAuthConfig, setEditingOAuthConfig] = useState(false);
@@ -83,18 +84,20 @@ function App() {
   );
 
   async function refresh() {
-    const [nextFiles, nextDocuments, nextJobs, nextAuthStatus, nextAuthConfig] = await Promise.all([
+    const [nextFiles, nextDocuments, nextJobs, nextAuthStatus, nextAuthConfig, nextScanStatus] = await Promise.all([
       requestJson("/api/ingestion/files"),
       requestJson("/api/documents"),
       requestJson("/api/ingestion/jobs"),
       requestJson("/api/auth/cloudreve/status"),
       requestJson("/api/auth/cloudreve/config"),
+      requestJson("/api/cloudreve/scan/status").catch(() => ({ status: "idle", files_found: 0, files_queued: 0, is_scanning: false })),
     ]);
     setFiles(nextFiles);
     setDocuments(nextDocuments);
     setJobs(nextJobs);
     setAuthStatus(nextAuthStatus);
     setAuthConfig(nextAuthConfig);
+    setScanStatus(nextScanStatus);
     if (!selectedUri && nextFiles.length) {
       setSelectedUri(nextFiles[0].uri);
     }
@@ -215,6 +218,25 @@ function App() {
     setUri(file.uri);
   }
 
+  async function scanCloudreve() {
+    setBusy(true);
+    setMessage("");
+    try {
+      await requestJson("/api/cloudreve/scan", { method: "POST" });
+      setMessage("全量扫描已在后台启动，发现的新文件将自动加入处理队列。");
+      setTimeout(() => refresh().catch(() => {}), 3000);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function scanStatusLabel(status) {
+    const labels = { idle: "空闲", scanning: "扫描中…", done: "完成", error: "出错" };
+    return labels[status] || status;
+  }
+
   async function askGraph() {
     setBusy(true);
     setMessage("");
@@ -250,7 +272,7 @@ function App() {
           <small>已处理文件</small>
         </article>
         <article>
-          <span>{files.filter((file) => file.status === "processing").length}</span>
+          <span>{files.filter((file) => file.status === "processing" || file.status === "running").length}</span>
           <small>处理中任务</small>
         </article>
         <article>
@@ -258,8 +280,14 @@ function App() {
           <small>失败文件</small>
         </article>
         <article>
-          <span>{authStatus.authorized ? "已授权" : "未授权"}</span>
-          <small>Cloudreve OAuth</small>
+          <span>{files.filter((file) => file.status === "pending").length}</span>
+          <small>待索引文件</small>
+        </article>
+        <article>
+          <span className={`scanDot ${scanStatus.is_scanning ? "scanning" : scanStatus.status}`}>
+            {scanStatusLabel(scanStatus.status)}
+          </span>
+          <small>网盘扫描 · 发现 {scanStatus.files_found} 个文件</small>
         </article>
       </section>
 
@@ -277,6 +305,7 @@ function App() {
           </div>
           <div className="fileList">
             {filteredFiles.length ? filteredFiles.map((file) => (
+
               <button
                 className={`fileRow ${selectedUri === file.uri ? "active" : ""}`}
                 key={file.uri}
@@ -294,7 +323,11 @@ function App() {
                   {file.semantic ? <small>{file.semantic.chunk_count} chunks</small> : <small>未见语义结果</small>}
                 </div>
               </button>
-            )) : <p className="muted">还没有监听或处理过的文件。</p>}
+            )) : (
+              <p className="muted">
+                暂无文件记录。点击右侧「扫描全部文件」可抓取 Cloudreve 上的全量文件并加入处理队列。
+              </p>
+            )}
           </div>
         </section>
 
@@ -389,6 +422,25 @@ function App() {
             ) : null}
           </div>
           <button className="secondary" onClick={authorizeCloudreve} disabled={busy}>打开 Cloudreve 授权</button>
+
+          <h2>网盘全量扫描</h2>
+          <div className={`scanPanel ${scanStatus.is_scanning ? "scanning" : scanStatus.status}`}>
+            <strong>{scanStatusLabel(scanStatus.status)}</strong>
+            {scanStatus.finished_at ? (
+              <small>上次扫描：{new Date(scanStatus.finished_at).toLocaleString()}</small>
+            ) : (
+              <small>尚未执行过扫描</small>
+            )}
+            <small>发现文件：{scanStatus.files_found} 个 · 本次新增队列：{scanStatus.files_queued} 个</small>
+            {scanStatus.error ? <small className="errorText">{scanStatus.error}</small> : null}
+          </div>
+          <button
+            className="secondary"
+            onClick={scanCloudreve}
+            disabled={busy || scanStatus.is_scanning}
+          >
+            {scanStatus.is_scanning ? "扫描中…" : "扫描全部文件"}
+          </button>
 
           <h2>手动补处理</h2>
           <label>

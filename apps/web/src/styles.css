@@ -78,7 +78,7 @@ h3 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -478,6 +478,63 @@ textarea.question {
 
 .oauthSetup label {
   margin: 8px 0 0;
+}
+
+/* ── Scan status dot (shown inside metrics card) ───────────────── */
+.scanDot {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  color: #6b7c8f;
+}
+
+.scanDot.scanning {
+  color: #1f4f7a;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.scanDot.done {
+  color: #16704a;
+}
+
+.scanDot.error {
+  color: #b94040;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ── Scan status panel (inside sidebar) ────────────────────────── */
+.scanPanel {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: grid;
+  gap: 3px;
+}
+
+.scanPanel strong,
+.scanPanel small {
+  display: block;
+}
+
+.scanPanel.scanning {
+  border-color: #9cc0e0;
+  background: #eef6fd;
+}
+
+.scanPanel.done {
+  border-color: #bde6cf;
+  background: #f0fbf5;
+}
+
+.scanPanel.error {
+  border-color: #f0c0c0;
+  background: #fff5f5;
 }
 
 @media (max-width: 1120px) {

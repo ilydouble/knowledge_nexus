@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from nexus.cloudreve.client import CloudreveClient
 from nexus.cloudreve.oauth import (
     CloudreveOAuthConfigStore,
     CloudreveOAuthError,
@@ -21,6 +22,7 @@ from nexus.repositories.base import NexusRepository
 from nexus.repositories.memory import InMemoryRepository
 from nexus.repositories.postgres import PostgresRepository
 from nexus.services.autolinker import AutoLinker
+from nexus.services.scanner import CloudreveScanner
 from nexus.services.graphrag import GraphRagService
 from nexus.services.ingestion import IngestionService
 from nexus.services.links import LinkService
@@ -74,6 +76,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     permission_filter = PermissionFilter()
     app.state.settings = app_settings
     app.state.repository = repo
+    app.state.scanner = CloudreveScanner(CloudreveClient(), repo)
 
     def get_repository() -> NexusRepository:
         return repo
@@ -276,5 +279,30 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     @app.post("/api/graphrag/ask")
     def graphrag_ask(request: GraphRagRequest, repository: NexusRepository = Depends(get_repository)):
         return GraphRagService(repository, permission_filter).ask(request)
+
+    # ------------------------------------------------------------------
+    # Cloudreve full-scan endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/cloudreve/scan/status")
+    def cloudreve_scan_status() -> dict[str, Any]:
+        """Return the most recent scan result (or idle state if never run)."""
+        scanner: CloudreveScanner = app.state.scanner
+        result = scanner.last_result()
+        return {**result.to_dict(), "is_scanning": scanner.is_scanning}
+
+    @app.post("/api/cloudreve/scan")
+    async def trigger_cloudreve_scan(background_tasks: BackgroundTasks) -> dict[str, Any]:
+        """Trigger a full recursive scan of the Cloudreve file tree.
+
+        Returns immediately; the scan runs as a background task.  Poll
+        ``/api/cloudreve/scan/status`` to follow progress.
+        """
+        scanner: CloudreveScanner = app.state.scanner
+        if scanner.is_scanning:
+            result = scanner.last_result()
+            return {"status": "already_scanning", **result.to_dict()}
+        background_tasks.add_task(scanner.scan)
+        return {"status": "started"}
 
     return app
