@@ -72,6 +72,7 @@ class CloudreveOAuthConfigStore:
         return {
             "configured": bool(payload.get("client_id") and payload.get("client_secret")),
             "cloudreve_base_url": payload.get("cloudreve_base_url"),
+            "client_id": payload.get("client_id"),
             "redirect_uri": payload.get("redirect_uri"),
             "scope": normalize_oauth_scope(payload.get("scope") or "openid offline_access"),
             "client_id_set": bool(payload.get("client_id")),

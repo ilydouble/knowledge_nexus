@@ -319,6 +319,7 @@ function App() {
 
           <div className="oauthSetup">
             <strong>{authConfig.configured ? "OAuth App 已配置" : "OAuth App 未配置"}</strong>
+            {authConfig.client_id ? <small>Client ID: {authConfig.client_id}</small> : null}
             <small>Redirect URI: {authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback"}</small>
             <small>Scope: openid profile offline_access Files.Read</small>
             {authConfig.configured && !editingOAuthConfig ? (

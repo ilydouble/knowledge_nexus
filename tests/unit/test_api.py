@@ -83,6 +83,7 @@ def test_cloudreve_oauth_config_can_be_saved_and_used_for_authorization(tmp_path
 
     assert config_response.status_code == 200
     assert config_response.json()["configured"] is True
+    assert config_response.json()["client_id"] == "client-id"
     assert config_response.json()["scope"] == "openid profile offline_access Files.Read"
     assert start_response.status_code == 307
     assert start_response.headers["location"].startswith("http://cloudreve.local/session/authorize?")
