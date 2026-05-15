@@ -89,13 +89,13 @@ class KnowledgeExtractor:
         model: str | None = None,
         base_url: str | None = None,
         http_client: Any | None = None,
-        timeout: float = 60.0,
+        timeout: float = 180.0,
     ) -> None:
         settings = Settings.from_env()
         self.api_key = api_key or settings.zhipu_api_key or settings.openai_api_key
         self.model = model or settings.llm_model
         self.base_url = base_url or settings.llm_base_url
-        self.http_client = http_client or httpx.Client()
+        self.http_client = http_client or httpx.Client(timeout=timeout)
         self.timeout = timeout
     
     def extract(

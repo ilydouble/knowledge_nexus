@@ -234,13 +234,20 @@ class CloudreveClient:
 
         Uses the two-step Cloudreve Pro v4 download flow:
         1. Obtain a signed download URL via _get_download_url_sync()
-        2. Fetch the raw bytes from that URL (no auth header needed, URL is pre-signed)
+        2. Stream the raw bytes from that URL in chunks so large files do not
+           trigger a read-timeout on the single-response body read.
         """
         download_url = self._get_download_url_sync(uri)
-        resp = requests.get(download_url, timeout=60.0)
+        # Use stream=True so requests reads chunks instead of the whole body at
+        # once.  connect_timeout=30s, read_timeout=120s per chunk.
+        resp = requests.get(download_url, timeout=(30.0, 120.0), stream=True)
         if resp.status_code != 200:
             self._raise_http_error(resp.status_code, endpoint="/api/v4/file/content (signed)")
-        return resp.content
+        chunks = []
+        for chunk in resp.iter_content(chunk_size=1024 * 256):  # 256 KB per chunk
+            if chunk:
+                chunks.append(chunk)
+        return b"".join(chunks)
 
     def _iter_file_events_sync(self, uri: str = "cloudreve://my", client_id: str | None = None) -> Iterator[dict[str, Any]]:
         self.ensure_fresh_token()

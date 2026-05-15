@@ -119,6 +119,9 @@ def test_get_file_content_sync_refreshes_expired_access_token_and_retries(monkey
         status_code = 200
         content = b"pdf-bytes"
 
+        def iter_content(self, chunk_size=None):
+            yield self.content
+
     url_responses = [FakeUrlResponse401(), FakeUrlResponseOK()]
 
     def fake_post(url, *, json=None, data=None, headers, timeout, **kwargs):
