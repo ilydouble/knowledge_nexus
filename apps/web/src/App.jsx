@@ -46,6 +46,7 @@ function App() {
   const [authConfig, setAuthConfig] = useState({ configured: false });
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [editingOAuthConfig, setEditingOAuthConfig] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -95,7 +96,9 @@ function App() {
         }),
       });
       setAuthConfig(nextConfig);
+      setOauthClientId("");
       setOauthClientSecret("");
+      setEditingOAuthConfig(false);
       setMessage(nextConfig.configured ? "Cloudreve OAuth 配置已保存，可以打开授权。" : "配置还不完整，请补齐 Client ID / Secret。");
     } catch (error) {
       setMessage(error.message);
@@ -318,7 +321,10 @@ function App() {
             <strong>{authConfig.configured ? "OAuth App 已配置" : "OAuth App 未配置"}</strong>
             <small>Redirect URI: {authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback"}</small>
             <small>Scope: openid profile offline_access Files.Read</small>
-            {!authConfig.configured ? (
+            {authConfig.configured && !editingOAuthConfig ? (
+              <button className="miniButton" onClick={() => setEditingOAuthConfig(true)} disabled={busy}>更新 OAuth 配置</button>
+            ) : null}
+            {!authConfig.configured || editingOAuthConfig ? (
               <>
                 <label>
                   Client ID
@@ -329,6 +335,9 @@ function App() {
                   <input type="password" value={oauthClientSecret} onChange={(event) => setOauthClientSecret(event.target.value)} />
                 </label>
                 <button className="secondary" onClick={saveCloudreveOAuthConfig} disabled={busy}>保存 OAuth 配置</button>
+                {editingOAuthConfig ? (
+                  <button className="miniButton" onClick={() => setEditingOAuthConfig(false)} disabled={busy}>取消</button>
+                ) : null}
               </>
             ) : null}
           </div>
