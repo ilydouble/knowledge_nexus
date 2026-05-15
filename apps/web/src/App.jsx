@@ -16,11 +16,24 @@ async function requestJson(path, options) {
 function statusLabel(status) {
   const labels = {
     pending: "等待中",
+    processing: "处理中",
+    processed: "已处理",
     running: "处理中",
     succeeded: "已完成",
     failed: "失败",
   };
   return labels[status] || status;
+}
+
+function stageLabel(stage) {
+  const labels = {
+    queued: "排队",
+    download: "下载",
+    parse: "解析",
+    semantic_extract: "语义提取",
+    persist: "入库",
+  };
+  return labels[stage] || stage || "未知";
 }
 
 function cloudreveAuthHint(authStatus) {
@@ -34,9 +47,11 @@ function cloudreveAuthHint(authStatus) {
 }
 
 function App() {
+  const [files, setFiles] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [selectedUri, setSelectedUri] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [knowledge, setKnowledge] = useState(null);
   const [uri, setUri] = useState("cloudreve://my/demo.md");
   const [content, setContent] = useState("Infrared sensor thermal calibration notes connect to project delivery risks.");
@@ -54,21 +69,34 @@ function App() {
     () => documents.find((document) => document.uri === selectedUri),
     [documents, selectedUri],
   );
-  const processedUris = useMemo(() => new Set(documents.map((document) => document.uri)), [documents]);
+  const selectedFile = useMemo(
+    () => files.find((file) => file.uri === selectedUri),
+    [files, selectedUri],
+  );
+  const filteredFiles = useMemo(
+    () => (statusFilter === "all" ? files : files.filter((file) => file.status === statusFilter)),
+    [files, statusFilter],
+  );
+  const selectedAttempts = useMemo(
+    () => jobs.filter((job) => job.uri === selectedUri),
+    [jobs, selectedUri],
+  );
 
   async function refresh() {
-    const [nextDocuments, nextJobs, nextAuthStatus, nextAuthConfig] = await Promise.all([
+    const [nextFiles, nextDocuments, nextJobs, nextAuthStatus, nextAuthConfig] = await Promise.all([
+      requestJson("/api/ingestion/files"),
       requestJson("/api/documents"),
       requestJson("/api/ingestion/jobs"),
       requestJson("/api/auth/cloudreve/status"),
       requestJson("/api/auth/cloudreve/config"),
     ]);
+    setFiles(nextFiles);
     setDocuments(nextDocuments);
     setJobs(nextJobs);
     setAuthStatus(nextAuthStatus);
     setAuthConfig(nextAuthConfig);
-    if (!selectedUri && nextDocuments.length) {
-      setSelectedUri(nextDocuments[0].uri);
+    if (!selectedUri && nextFiles.length) {
+      setSelectedUri(nextFiles[0].uri);
     }
   }
 
@@ -162,14 +190,18 @@ function App() {
     }
   }
 
-  async function retryJob(job) {
+  async function retryFile(file) {
     setBusy(true);
     setMessage("");
     try {
-      const result = await requestJson(`/api/ingestion/jobs/${job.id}/retry`, { method: "POST" });
+      const result = await requestJson("/api/ingestion/files/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uri: file.uri, requested_by: "demo-user" }),
+      });
       await refresh();
-      setSelectedUri(job.uri);
-      setUri(job.uri);
+      setSelectedUri(file.uri);
+      setUri(file.uri);
       setMessage(result.processing?.success ? "已重新处理该文件。" : `重新处理失败：${result.processing?.error || "未知错误"}`);
     } catch (error) {
       setMessage(error.message);
@@ -178,9 +210,9 @@ function App() {
     }
   }
 
-  function selectJobFile(job) {
-    setSelectedUri(job.uri);
-    setUri(job.uri);
+  function selectFile(file) {
+    setSelectedUri(file.uri);
+    setUri(file.uri);
   }
 
   async function askGraph() {
@@ -214,16 +246,16 @@ function App() {
 
       <section className="metrics">
         <article>
-          <span>{documents.length}</span>
-          <small>已索引文档</small>
+          <span>{files.filter((file) => file.status === "processed").length}</span>
+          <small>已处理文件</small>
         </article>
         <article>
-          <span>{jobs.filter((job) => job.status === "running").length}</span>
+          <span>{files.filter((file) => file.status === "processing").length}</span>
           <small>处理中任务</small>
         </article>
         <article>
-          <span>{jobs.filter((job) => job.status === "failed").length}</span>
-          <small>失败任务</small>
+          <span>{files.filter((file) => file.status === "failed").length}</span>
+          <small>失败文件</small>
         </article>
         <article>
           <span>{authStatus.authorized ? "已授权" : "未授权"}</span>
@@ -232,81 +264,95 @@ function App() {
       </section>
 
       <section className="workspace">
-        <aside className="panel sidebar">
+        <section className="panel fileCenter">
           <div className="panelHeader">
-            <h2>文档</h2>
+            <h2>文件处理中心</h2>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">全部</option>
+              <option value="processed">已处理</option>
+              <option value="processing">处理中</option>
+              <option value="pending">等待中</option>
+              <option value="failed">失败</option>
+            </select>
           </div>
-          <div className="list">
-            {documents.length ? documents.map((document) => (
+          <div className="fileList">
+            {filteredFiles.length ? filteredFiles.map((file) => (
               <button
-                className={`listItem ${selectedUri === document.uri ? "active" : ""}`}
-                key={document.uri}
-                onClick={() => setSelectedUri(document.uri)}
+                className={`fileRow ${selectedUri === file.uri ? "active" : ""}`}
+                key={file.uri}
+                onClick={() => selectFile(file)}
               >
-                <strong>{document.uri.split("/").pop()}</strong>
-                <small>{document.uri}</small>
+                <div>
+                  <strong>{file.filename}</strong>
+                  <small>{file.uri}</small>
+                  {file.last_error ? <small className="errorText">{file.last_error}</small> : null}
+                </div>
+                <div className="fileMeta">
+                  <span className={`status ${file.status}`}>{statusLabel(file.status)}</span>
+                  <span className="semanticBadge">{stageLabel(file.stage)}</span>
+                  <small>{file.attempt_count} 次尝试</small>
+                  {file.semantic ? <small>{file.semantic.chunk_count} chunks</small> : <small>未见语义结果</small>}
+                </div>
               </button>
-            )) : <p className="muted">还没有可查看的语义文档。</p>}
+            )) : <p className="muted">还没有监听或处理过的文件。</p>}
           </div>
-
-          <h2 className="sectionTitle">任务</h2>
-          <div className="jobs">
-            {jobs.length ? jobs.slice(0, 8).map((job) => (
-              <article className="job" key={job.id}>
-                <div className="jobMeta">
-                  <span className={`status ${job.status}`}>{statusLabel(job.status)}</span>
-                  <span className={`semanticBadge ${processedUris.has(job.uri) ? "ready" : ""}`}>
-                    {processedUris.has(job.uri) ? "已语义处理" : "未见语义结果"}
-                  </span>
-                </div>
-                <strong>{job.uri.split("/").pop()}</strong>
-                <small>{job.uri}</small>
-                <small>尝试 {job.attempts} 次 · {new Date(job.created_at).toLocaleString()}</small>
-                {job.error ? <p className="jobError">{job.error}</p> : null}
-                <div className="jobActions">
-                  <button className="miniButton" onClick={() => selectJobFile(job)} disabled={busy}>选中文件</button>
-                  <button className="miniButton primary" onClick={() => retryJob(job)} disabled={busy}>重新处理</button>
-                </div>
-              </article>
-            )) : <p className="muted">暂无 ingestion job。</p>}
-          </div>
-        </aside>
+        </section>
 
         <section className="panel inspector">
           <div className="panelHeader">
-            <h2>知识检查器</h2>
-            {selectedDocument ? <span className="pill">{selectedDocument.chunk_count} chunks</span> : null}
+            <h2>文件详情</h2>
+            {selectedFile ? <span className={`status ${selectedFile.status}`}>{statusLabel(selectedFile.status)}</span> : null}
           </div>
 
-          {knowledge ? (
+          {selectedFile ? (
             <>
-              <p className="uri">{knowledge.uri}</p>
-              <p className="summary">{knowledge.summary || "暂无摘要"}</p>
+              <p className="uri">{selectedFile.uri}</p>
+              <div className="detailGrid">
+                <article>
+                  <small>当前阶段</small>
+                  <strong>{stageLabel(selectedFile.stage)}</strong>
+                </article>
+                <article>
+                  <small>尝试次数</small>
+                  <strong>{selectedFile.attempt_count}</strong>
+                </article>
+                <article>
+                  <small>来源</small>
+                  <strong>{selectedFile.source}</strong>
+                </article>
+              </div>
+              {selectedFile.last_error ? <p className="jobError">{selectedFile.last_error}</p> : null}
+              <button onClick={() => retryFile(selectedFile)} disabled={busy}>重新处理原文件</button>
+
+              <h3>语义结果</h3>
+              <p className="summary">{knowledge?.summary || selectedFile.semantic?.summary || "暂无摘要"}</p>
 
               <h3>标签</h3>
               <div className="chips">
-                {knowledge.tags.length ? knowledge.tags.map((tag) => <span key={tag}>{tag}</span>) : <small className="muted">暂无标签</small>}
+                {knowledge?.tags?.length ? knowledge.tags.map((tag) => <span key={tag}>{tag}</span>) : <small className="muted">暂无标签</small>}
               </div>
 
               <h3>实体</h3>
               <div className="chips entity">
-                {knowledge.entities.length ? knowledge.entities.map((entity) => <span key={entity}>{entity}</span>) : <small className="muted">暂无实体</small>}
+                {knowledge?.entities?.length ? knowledge.entities.map((entity) => <span key={entity}>{entity}</span>) : <small className="muted">暂无实体</small>}
               </div>
 
-              <h3>自动链接建议</h3>
-              {knowledge.suggestions.length ? (
-                knowledge.suggestions.map((suggestion) => (
-                  <article className="suggestion" key={`${suggestion.source_uri}-${suggestion.target_uri}`}>
-                    <strong>{suggestion.target_uri}</strong>
-                    <small>{suggestion.reason}</small>
+              <h3>最近尝试</h3>
+              <div className="jobs">
+                {selectedAttempts.length ? selectedAttempts.slice(0, 5).map((job) => (
+                  <article className="job" key={job.id}>
+                    <div className="jobMeta">
+                      <span className={`status ${job.status}`}>{statusLabel(job.status)}</span>
+                      <span className="semanticBadge">{stageLabel(job.stage)}</span>
+                    </div>
+                    <small>{new Date(job.created_at).toLocaleString()} · attempts {job.attempts}</small>
+                    {job.error ? <p className="jobError">{job.error}</p> : null}
                   </article>
-                ))
-              ) : (
-                <p className="muted">没有候选链接。索引更多相似文档后会出现建议。</p>
-              )}
+                )) : <p className="muted">暂无尝试记录。</p>}
+              </div>
             </>
           ) : (
-            <p className="muted">选择一个文档查看语义分析结果。</p>
+            <p className="muted">选择一个文件查看处理详情。</p>
           )}
         </section>
 
@@ -344,18 +390,21 @@ function App() {
           </div>
           <button className="secondary" onClick={authorizeCloudreve} disabled={busy}>打开 Cloudreve 授权</button>
 
-          <h2>手动处理</h2>
+          <h2>手动补处理</h2>
           <label>
             Cloudreve URI
             <input value={uri} onChange={(event) => setUri(event.target.value)} />
           </label>
           <button onClick={processCloudreveFile} disabled={busy}>处理 Cloudreve 文档</button>
 
-          <label>
-            演示文本
-            <textarea value={content} onChange={(event) => setContent(event.target.value)} />
-          </label>
-          <button className="secondary" onClick={demoIndex} disabled={busy}>写入演示文本</button>
+          <details className="devTools">
+            <summary>开发工具</summary>
+            <label>
+              演示文本
+              <textarea value={content} onChange={(event) => setContent(event.target.value)} />
+            </label>
+            <button className="secondary" onClick={demoIndex} disabled={busy}>写入演示文本</button>
+          </details>
 
           <h2 className="sectionTitle">GraphRAG</h2>
           <label>

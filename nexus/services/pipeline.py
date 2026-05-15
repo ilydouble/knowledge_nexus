@@ -33,6 +33,8 @@ class ProcessingResult:
     entities_count: int = 0
     relations_count: int = 0
     chunks_count: int = 0
+    stage: str = "queued"
+    error_code: str | None = None
     error: str | None = None
     processing_time_ms: int = 0
 
@@ -102,6 +104,7 @@ class SemanticPipeline:
     ) -> ProcessingResult:
         """Process a single file through the complete pipeline."""
         start_time = datetime.now(UTC)
+        stage = "download"
         
         try:
             # Step 1: Download file from Cloudreve
@@ -112,6 +115,7 @@ class SemanticPipeline:
             filename = uri.split("/")[-1] or "unknown"
             
             # Step 2: Parse content
+            stage = "parse"
             logger.info(f"Parsing content: {filename}")
             parsed = self._parse_content(content, filename)
             
@@ -122,10 +126,12 @@ class SemanticPipeline:
                 )
             
             # Step 3: Extract knowledge
+            stage = "semantic_extract"
             logger.info(f"Extracting knowledge (type: {doc_type})")
             knowledge = self._extract_knowledge(parsed.text, doc_type)
             
             # Step 4: Store in databases
+            stage = "persist"
             logger.info("Storing knowledge")
             self._store_knowledge(uri, knowledge, parsed, requested_by)
             
@@ -140,6 +146,7 @@ class SemanticPipeline:
                 entities_count=len(knowledge.entities),
                 relations_count=len(knowledge.relations),
                 chunks_count=len(parsed.chunks),
+                stage="persist",
                 processing_time_ms=processing_time,
             )
         
@@ -149,6 +156,8 @@ class SemanticPipeline:
                 uri=uri,
                 filename=uri.split("/")[-1] or "unknown",
                 success=False,
+                stage=stage,
+                error_code=f"{stage}_failed",
                 error=str(e),
             )
     

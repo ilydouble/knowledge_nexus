@@ -83,6 +83,7 @@ class Worker:
         job = jobs[0] if jobs else None
         if job:
             self.ingestion.mark_running(job.id)
+            self.ingestion.mark_stage(job.id, "download")
 
         try:
             # Process file through pipeline
@@ -103,12 +104,17 @@ class Worker:
                 )
             else:
                 if job:
-                    self.ingestion.mark_failed(job.id, result.error or "processing failed")
+                    self.ingestion.mark_failed(
+                        job.id,
+                        result.error or "processing failed",
+                        stage=getattr(result, "stage", None) or "download",
+                        error_code=getattr(result, "error_code", None),
+                    )
                 logger.error(f"Failed to process {uri}: {result.error}")
         
         except Exception as e:
             if job:
-                self.ingestion.mark_failed(job.id, str(e))
+                self.ingestion.mark_failed(job.id, str(e), stage="download", error_code="worker_exception")
             logger.error(f"Error processing {uri}: {e}")
     
     async def run(self) -> None:

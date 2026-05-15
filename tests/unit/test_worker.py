@@ -72,6 +72,9 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
 
         def update_job(self, job):
             seen.setdefault("updated_statuses", []).append(job.status)
+            for index, existing in enumerate(self.jobs):
+                if existing.id == job.id:
+                    self.jobs[index] = job
             return job
 
         def get_job(self, job_id):
@@ -136,7 +139,7 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
     assert seen["pipeline_token"] is None
     assert seen["processed_uri"] == "cloudreve://my/demo.md"
     assert seen["processed_by"] == "worker"
-    assert seen["updated_statuses"] == ["running", "succeeded"]
+    assert seen["updated_statuses"] == ["running", "running", "succeeded"]
 
 
 def test_worker_uses_configured_repository_builder(monkeypatch):

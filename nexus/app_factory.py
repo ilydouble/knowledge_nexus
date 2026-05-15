@@ -169,6 +169,19 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             return job
         return _process_job(job.id, repository)
 
+    @app.get("/api/ingestion/files")
+    def list_ingestion_files(repository: NexusRepository = Depends(get_repository)):
+        return IngestionService(repository).list_files()
+
+    @app.post("/api/ingestion/files/retry")
+    def retry_file(payload: dict[str, str], repository: NexusRepository = Depends(get_repository)):
+        uri = payload.get("uri")
+        if not uri:
+            raise HTTPException(status_code=400, detail="uri is required")
+        requested_by = payload.get("requested_by") or "system"
+        job = IngestionService(repository).sync(SyncRequest(uri=uri, requested_by=requested_by))
+        return _process_job(job.id, repository)
+
     @app.post("/api/ingestion/jobs/{job_id}/retry")
     def retry_job(job_id: str, repository: NexusRepository = Depends(get_repository)):
         if repository.get_job(job_id) is None:
@@ -178,6 +191,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     def _process_job(job_id: str, repository: NexusRepository) -> dict[str, Any]:
         ingestion = IngestionService(repository)
         job = ingestion.mark_running(job_id)
+        ingestion.mark_stage(job.id, "download")
         result = SemanticPipeline(
             cloudreve_token=None,
             settings=app_settings,
@@ -188,7 +202,12 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         if result.success:
             job = ingestion.mark_succeeded(job.id)
         else:
-            job = ingestion.mark_failed(job.id, result.error or "processing failed")
+            job = ingestion.mark_failed(
+                job.id,
+                result.error or "processing failed",
+                stage=getattr(result, "stage", None) or "download",
+                error_code=getattr(result, "error_code", None),
+            )
         return {"job": job, "processing": _processing_result_to_dict(result)}
 
     @app.get("/api/ingestion/jobs")

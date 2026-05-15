@@ -29,17 +29,37 @@ class PostgresRepository:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO ingestion_jobs (id, tenant_id, uri, requested_by, status, attempts, created_at, error)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO ingestion_jobs (
+                    id, tenant_id, uri, requested_by, status, stage, attempts,
+                    created_at, started_at, finished_at, error_code, error
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     uri = EXCLUDED.uri,
                     requested_by = EXCLUDED.requested_by,
                     status = EXCLUDED.status,
+                    stage = EXCLUDED.stage,
                     attempts = EXCLUDED.attempts,
                     created_at = EXCLUDED.created_at,
+                    started_at = EXCLUDED.started_at,
+                    finished_at = EXCLUDED.finished_at,
+                    error_code = EXCLUDED.error_code,
                     error = EXCLUDED.error
                 """,
-                (job.id, self.tenant_id, job.uri, job.requested_by, job.status, job.attempts, job.created_at, job.error),
+                (
+                    job.id,
+                    self.tenant_id,
+                    job.uri,
+                    job.requested_by,
+                    job.status,
+                    job.stage,
+                    job.attempts,
+                    job.created_at,
+                    job.started_at,
+                    job.finished_at,
+                    job.error_code,
+                    job.error,
+                ),
             )
             connection.commit()
         return job
@@ -58,11 +78,15 @@ class PostgresRepository:
                 """
                 UPDATE ingestion_jobs
                 SET status = %s,
+                    stage = %s,
                     attempts = %s,
+                    started_at = %s,
+                    finished_at = %s,
+                    error_code = %s,
                     error = %s
                 WHERE id = %s AND tenant_id = %s
                 """,
-                (job.status, job.attempts, job.error, job.id, self.tenant_id),
+                (job.status, job.stage, job.attempts, job.started_at, job.finished_at, job.error_code, job.error, job.id, self.tenant_id),
             )
             connection.commit()
         return job
@@ -228,8 +252,12 @@ class PostgresRepository:
             uri=row["uri"],
             requested_by=row["requested_by"],
             status=row["status"],
+            stage=row.get("stage") or "queued",
             attempts=row["attempts"],
             created_at=row["created_at"],
+            started_at=row.get("started_at"),
+            finished_at=row.get("finished_at"),
+            error_code=row.get("error_code"),
             error=row["error"],
         )
 

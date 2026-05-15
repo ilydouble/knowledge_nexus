@@ -320,6 +320,135 @@ def test_sync_endpoint_marks_failed_processing_job(monkeypatch):
     body = response.json()
     assert body["job"]["status"] == "failed"
     assert body["job"]["error"] == "download failed"
+    assert body["job"]["stage"] == "download"
+
+
+def test_ingestion_files_endpoint_groups_jobs_with_semantic_result(monkeypatch):
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            self.repository = kwargs["repository"]
+
+        def process_file(self, uri, requested_by):
+            from nexus.models import SemanticDocument, TextChunk
+
+            self.repository.add_document(
+                SemanticDocument(
+                    uri=uri,
+                    summary="Processed report",
+                    tags=["report"],
+                    entities=["Report"],
+                    chunks=[TextChunk(id="chunk-1", text="Processed report", index=0)],
+                    requested_by=requested_by,
+                )
+            )
+
+            class Result:
+                success = True
+                summary = "Processed report"
+                tags = ["report"]
+                entities_count = 1
+                relations_count = 0
+                chunks_count = 1
+                error = None
+                processing_time_ms = 7
+
+            return Result()
+
+    monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
+    client = make_client()
+    client.post(
+        "/api/ingestion/sync?process=true",
+        json={"uri": "cloudreve://my/report.md", "requested_by": "user-1"},
+    )
+
+    response = client.get("/api/ingestion/files")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["uri"] == "cloudreve://my/report.md"
+    assert body[0]["status"] == "processed"
+    assert body[0]["stage"] == "persist"
+    assert body[0]["attempt_count"] == 1
+    assert body[0]["semantic"]["summary"] == "Processed report"
+    assert body[0]["semantic"]["chunk_count"] == 1
+
+
+def test_ingestion_files_endpoint_keeps_failed_files_visible(monkeypatch):
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def process_file(self, uri, requested_by):
+            class Result:
+                success = False
+                summary = ""
+                tags = []
+                entities_count = 0
+                relations_count = 0
+                chunks_count = 0
+                error = "parse failed"
+                error_code = "parse_failed"
+                stage = "parse"
+                processing_time_ms = 3
+
+            return Result()
+
+    monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
+    client = make_client()
+    client.post(
+        "/api/ingestion/sync?process=true",
+        json={"uri": "cloudreve://my/broken.pdf", "requested_by": "user-1"},
+    )
+
+    response = client.get("/api/ingestion/files")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["uri"] == "cloudreve://my/broken.pdf"
+    assert body[0]["status"] == "failed"
+    assert body[0]["stage"] == "parse"
+    assert body[0]["last_error"] == "parse failed"
+    assert body[0]["semantic"] is None
+
+
+def test_file_retry_creates_new_attempt_for_original_uri(monkeypatch):
+    seen = {"processed": []}
+
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def process_file(self, uri, requested_by):
+            seen["processed"].append((uri, requested_by))
+
+            class Result:
+                success = False
+                summary = ""
+                tags = []
+                entities_count = 0
+                relations_count = 0
+                chunks_count = 0
+                error = "download failed"
+                error_code = "download_failed"
+                stage = "download"
+                processing_time_ms = 2
+
+            return Result()
+
+    monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
+    client = make_client()
+    client.post("/api/ingestion/files/retry", json={"uri": "cloudreve://my/retry.md", "requested_by": "user-1"})
+    client.post("/api/ingestion/files/retry", json={"uri": "cloudreve://my/retry.md", "requested_by": "user-1"})
+
+    files = client.get("/api/ingestion/files").json()
+    jobs = client.get("/api/ingestion/jobs").json()
+
+    assert seen["processed"] == [
+        ("cloudreve://my/retry.md", "user-1"),
+        ("cloudreve://my/retry.md", "user-1"),
+    ]
+    assert files[0]["attempt_count"] == 2
+    assert files[0]["latest_job"]["id"] == jobs[0]["id"]
 
 
 def test_retry_job_endpoint_reprocesses_existing_job(monkeypatch):
