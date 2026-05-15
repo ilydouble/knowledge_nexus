@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import requests
 
 from nexus.api import create_app
 from nexus.repositories.memory import InMemoryRepository
@@ -202,6 +203,33 @@ def test_cloudreve_oauth_callback_exchanges_code_and_saves_tokens(monkeypatch, t
     assert seen["data"]["grant_type"] == "authorization_code"
     assert seen["data"]["code"] == "auth-code"
     assert client.get("/api/auth/cloudreve/status").json()["authorized"] is True
+
+
+def test_cloudreve_oauth_callback_reports_token_exchange_http_error(monkeypatch, tmp_path):
+    settings = Settings(
+        cloudreve_base_url="http://cloudreve.local",
+        cloudreve_oauth_client_id="client-id",
+        cloudreve_oauth_client_secret="client-secret",
+        cloudreve_token_store_path=str(tmp_path / "tokens.json"),
+    )
+
+    class FakeResponse:
+        status_code = 400
+        text = "bad request"
+
+        def raise_for_status(self):
+            raise requests.HTTPError("400 Client Error")
+
+        def json(self):
+            return {"code": 40001, "msg": "invalid authorization code"}
+
+    monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", lambda *args, **kwargs: FakeResponse())
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/callback?code=bad-code")
+
+    assert response.status_code == 400
+    assert "invalid authorization code" in response.json()["detail"]
 
 
 def test_sync_endpoint_creates_job():

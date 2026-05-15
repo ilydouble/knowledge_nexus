@@ -126,20 +126,28 @@ def unwrap_token_response(payload: dict[str, Any]) -> dict[str, Any]:
 def exchange_authorization_code(settings: Settings, code: str) -> dict[str, Any]:
     if not settings.cloudreve_oauth_client_id or not settings.cloudreve_oauth_client_secret:
         raise CloudreveOAuthError("CLOUDREVE_OAUTH_CLIENT_ID and CLOUDREVE_OAUTH_CLIENT_SECRET are required")
-    response = requests.post(
-        f"{settings.cloudreve_base_url.rstrip('/')}/api/v4/session/oauth/token",
-        data={
-            "grant_type": "authorization_code",
-            "client_id": settings.cloudreve_oauth_client_id,
-            "client_secret": settings.cloudreve_oauth_client_secret,
-            "code": code,
-            "redirect_uri": settings.cloudreve_oauth_redirect_uri,
-        },
-        headers={"Accept": "application/json"},
-        timeout=20,
-    )
-    response.raise_for_status()
-    return unwrap_token_response(response.json())
+    try:
+        response = requests.post(
+            f"{settings.cloudreve_base_url.rstrip('/')}/api/v4/session/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": settings.cloudreve_oauth_client_id,
+                "client_secret": settings.cloudreve_oauth_client_secret,
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise CloudreveOAuthError(f"Cloudreve OAuth token request failed: {exc}") from exc
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if response.status_code >= 400:
+        message = payload.get("msg") if isinstance(payload, dict) else None
+        raise CloudreveOAuthError(message or f"Cloudreve OAuth token request failed with HTTP {response.status_code}")
+    return unwrap_token_response(payload)
 
 
 def refresh_oauth_tokens(settings: Settings, refresh_token: str) -> dict[str, Any]:

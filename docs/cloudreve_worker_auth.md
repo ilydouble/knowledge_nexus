@@ -17,6 +17,8 @@ If you do not want to edit `.env`, the web console can save the OAuth app `Clien
 
 Open `GET /api/auth/cloudreve/start` from the Nexus API, or use the web console authorization button. After Cloudreve redirects back to `/api/auth/cloudreve/callback`, Nexus exchanges the code for tokens and saves them to `CLOUDREVE_TOKEN_STORE_PATH`. `CloudreveClient` reads that token store on startup, so worker and manual ingestion can recover after an access token expires.
 
+During callback, Nexus sends Cloudreve's documented token exchange form fields: `grant_type=authorization_code`, `client_id`, `client_secret`, and `code`.
+
 The `openid` scope is required by Cloudreve's OAuth authorization page, and `offline_access` is required to receive a `refresh_token`. The web console authorization status actively calls Cloudreve's refresh endpoint before showing `authorized`. A token file that merely contains old tokens is not enough. If Cloudreve returns a refresh failure, the console should show that re-authorization is required.
 
 Manual token configuration is still supported when OAuth app credentials are not available:
