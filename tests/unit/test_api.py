@@ -192,6 +192,82 @@ def test_sync_endpoint_marks_failed_processing_job(monkeypatch):
     assert body["job"]["error"] == "download failed"
 
 
+def test_retry_job_endpoint_reprocesses_existing_job(monkeypatch):
+    seen = {}
+
+    class FakePipeline:
+        def __init__(self, *, cloudreve_token, settings, repository, enable_neo4j, enable_milvus):
+            seen["repository"] = repository
+
+        def process_file(self, uri, requested_by):
+            seen["uri"] = uri
+            seen["requested_by"] = requested_by
+
+            class Result:
+                success = True
+                summary = "processed again"
+                tags = ["retry"]
+                entities_count = 1
+                relations_count = 0
+                chunks_count = 1
+                error = None
+                processing_time_ms = 7
+
+            return Result()
+
+    monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
+    client = make_client()
+    job = client.post(
+        "/api/ingestion/sync",
+        json={"uri": "cloudreve://my/retry.md", "requested_by": "user-1"},
+    ).json()
+
+    response = client.post(f"/api/ingestion/jobs/{job['id']}/retry")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["job"]["status"] == "succeeded"
+    assert body["job"]["attempts"] == 1
+    assert body["processing"]["success"] is True
+    assert seen["uri"] == "cloudreve://my/retry.md"
+    assert seen["requested_by"] == "user-1"
+
+
+def test_retry_job_endpoint_preserves_failure_details(monkeypatch):
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def process_file(self, uri, requested_by):
+            class Result:
+                success = False
+                summary = ""
+                tags = []
+                entities_count = 0
+                relations_count = 0
+                chunks_count = 0
+                error = "glm timeout"
+                processing_time_ms = 9
+
+            return Result()
+
+    monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
+    client = make_client()
+    job = client.post(
+        "/api/ingestion/sync",
+        json={"uri": "cloudreve://my/bad.md", "requested_by": "user-1"},
+    ).json()
+
+    response = client.post(f"/api/ingestion/jobs/{job['id']}/retry")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["job"]["status"] == "failed"
+    assert body["job"]["attempts"] == 1
+    assert body["job"]["error"] == "glm timeout"
+    assert body["processing"]["error"] == "glm timeout"
+
+
 def test_documents_and_jobs_endpoints_expose_processing_results():
     client = make_client()
     client.post(

@@ -40,6 +40,7 @@ function App() {
     () => documents.find((document) => document.uri === selectedUri),
     [documents, selectedUri],
   );
+  const processedUris = useMemo(() => new Set(documents.map((document) => document.uri)), [documents]);
 
   async function refresh() {
     const [nextDocuments, nextJobs, nextAuthStatus] = await Promise.all([
@@ -114,6 +115,27 @@ function App() {
     }
   }
 
+  async function retryJob(job) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await requestJson(`/api/ingestion/jobs/${job.id}/retry`, { method: "POST" });
+      await refresh();
+      setSelectedUri(job.uri);
+      setUri(job.uri);
+      setMessage(result.processing?.success ? "已重新处理该文件。" : `重新处理失败：${result.processing?.error || "未知错误"}`);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function selectJobFile(job) {
+    setSelectedUri(job.uri);
+    setUri(job.uri);
+  }
+
   async function askGraph() {
     setBusy(true);
     setMessage("");
@@ -184,9 +206,20 @@ function App() {
           <div className="jobs">
             {jobs.length ? jobs.slice(0, 8).map((job) => (
               <article className="job" key={job.id}>
-                <span className={`status ${job.status}`}>{statusLabel(job.status)}</span>
+                <div className="jobMeta">
+                  <span className={`status ${job.status}`}>{statusLabel(job.status)}</span>
+                  <span className={`semanticBadge ${processedUris.has(job.uri) ? "ready" : ""}`}>
+                    {processedUris.has(job.uri) ? "已语义处理" : "未见语义结果"}
+                  </span>
+                </div>
                 <strong>{job.uri.split("/").pop()}</strong>
-                {job.error ? <small>{job.error}</small> : <small>{job.uri}</small>}
+                <small>{job.uri}</small>
+                <small>尝试 {job.attempts} 次 · {new Date(job.created_at).toLocaleString()}</small>
+                {job.error ? <p className="jobError">{job.error}</p> : null}
+                <div className="jobActions">
+                  <button className="miniButton" onClick={() => selectJobFile(job)} disabled={busy}>选中文件</button>
+                  <button className="miniButton primary" onClick={() => retryJob(job)} disabled={busy}>重新处理</button>
+                </div>
               </article>
             )) : <p className="muted">暂无 ingestion job。</p>}
           </div>

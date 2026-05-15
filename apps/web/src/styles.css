@@ -230,8 +230,20 @@ textarea.question {
   background: #f8fafc;
 }
 
+.jobMeta,
+.jobActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.jobActions {
+  margin-top: 10px;
+}
+
 .status,
-.pill {
+.pill,
+.semanticBadge {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -242,6 +254,11 @@ textarea.question {
   color: #46586e;
   font-size: 12px;
   font-weight: 800;
+}
+
+.semanticBadge.ready {
+  background: #e7f5ee;
+  color: #16704a;
 }
 
 .status.succeeded {
@@ -257,6 +274,34 @@ textarea.question {
 .status.failed {
   background: #fdecec;
   color: #b42318;
+}
+
+.jobError {
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff1f1;
+  color: #9f1d1d;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.miniButton {
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding: 6px 9px;
+  border: 1px solid #cbd7e5;
+  background: #ffffff;
+  color: #2d3b4d;
+  font-size: 12px;
+}
+
+.miniButton.primary {
+  border-color: #1f4f7a;
+  background: #1f4f7a;
+  color: #ffffff;
 }
 
 .summary,

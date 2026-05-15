@@ -117,14 +117,24 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         job = ingestion.sync(request)
         if not process:
             return job
-        ingestion.mark_running(job.id)
+        return _process_job(job.id, repository)
+
+    @app.post("/api/ingestion/jobs/{job_id}/retry")
+    def retry_job(job_id: str, repository: NexusRepository = Depends(get_repository)):
+        if repository.get_job(job_id) is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return _process_job(job_id, repository)
+
+    def _process_job(job_id: str, repository: NexusRepository) -> dict[str, Any]:
+        ingestion = IngestionService(repository)
+        job = ingestion.mark_running(job_id)
         result = SemanticPipeline(
             cloudreve_token=app_settings.cloudreve_token,
             settings=app_settings,
             repository=repository,
             enable_neo4j=bool(app_settings.neo4j_uri),
             enable_milvus=bool(app_settings.milvus_host),
-        ).process_file(uri=request.uri, requested_by=request.requested_by)
+        ).process_file(uri=job.uri, requested_by=job.requested_by)
         if result.success:
             job = ingestion.mark_succeeded(job.id)
         else:
