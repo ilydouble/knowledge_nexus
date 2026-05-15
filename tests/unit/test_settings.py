@@ -99,7 +99,7 @@ def test_settings_loads_cloudreve_oauth_settings(monkeypatch):
     assert settings.cloudreve_oauth_client_id == "client-id"
     assert settings.cloudreve_oauth_client_secret == "client-secret"
     assert settings.cloudreve_oauth_redirect_uri == "http://localhost:8000/api/auth/cloudreve/callback"
-    assert settings.cloudreve_oauth_scope == "offline_access"
+    assert settings.cloudreve_oauth_scope == "openid offline_access"
     assert settings.cloudreve_token_store_path == "data/runtime/tokens.json"
 
 

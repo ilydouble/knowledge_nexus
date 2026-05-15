@@ -60,6 +60,8 @@ class CloudreveOAuthConfigStore:
     def save(self, payload: dict[str, Any]) -> None:
         allowed_keys = {"cloudreve_base_url", "client_id", "client_secret", "redirect_uri", "scope"}
         values = {key: value for key, value in payload.items() if key in allowed_keys and value}
+        if "scope" in values:
+            values["scope"] = normalize_oauth_scope(str(values["scope"]))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         existing = self.load()
         existing.update(values)
@@ -71,10 +73,17 @@ class CloudreveOAuthConfigStore:
             "configured": bool(payload.get("client_id") and payload.get("client_secret")),
             "cloudreve_base_url": payload.get("cloudreve_base_url"),
             "redirect_uri": payload.get("redirect_uri"),
-            "scope": payload.get("scope") or "offline_access",
+            "scope": normalize_oauth_scope(payload.get("scope") or "openid offline_access"),
             "client_id_set": bool(payload.get("client_id")),
             "client_secret_set": bool(payload.get("client_secret")),
         }
+
+
+def normalize_oauth_scope(scope: str) -> str:
+    seen = set(scope.split())
+    scopes = ["openid", "offline_access"]
+    scopes.extend(scope for scope in seen if scope not in {"openid", "offline_access"})
+    return " ".join(scopes)
 
 
 def resolve_oauth_settings(settings: Settings) -> Settings:
@@ -82,11 +91,11 @@ def resolve_oauth_settings(settings: Settings) -> Settings:
     return Settings(
         **{
             **settings.__dict__,
-            "cloudreve_base_url": config.get("cloudreve_base_url") or settings.cloudreve_base_url,
-            "cloudreve_oauth_client_id": config.get("client_id") or settings.cloudreve_oauth_client_id,
-            "cloudreve_oauth_client_secret": config.get("client_secret") or settings.cloudreve_oauth_client_secret,
+            "cloudreve_base_url": settings.cloudreve_base_url if settings.cloudreve_base_url != Settings.cloudreve_base_url else config.get("cloudreve_base_url") or settings.cloudreve_base_url,
+            "cloudreve_oauth_client_id": settings.cloudreve_oauth_client_id or config.get("client_id"),
+            "cloudreve_oauth_client_secret": settings.cloudreve_oauth_client_secret or config.get("client_secret"),
             "cloudreve_oauth_redirect_uri": config.get("redirect_uri") or settings.cloudreve_oauth_redirect_uri,
-            "cloudreve_oauth_scope": config.get("scope") or settings.cloudreve_oauth_scope,
+            "cloudreve_oauth_scope": normalize_oauth_scope(config.get("scope") or settings.cloudreve_oauth_scope),
         }
     )
 

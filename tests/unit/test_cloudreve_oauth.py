@@ -42,6 +42,7 @@ def test_oauth_config_store_saves_non_token_oauth_settings(tmp_path):
     )
 
     assert store.load()["client_id"] == "client-id"
+    assert store.load()["scope"] == "openid offline_access"
     assert store.status()["configured"] is True
     assert store.status()["client_secret_set"] is True
 
@@ -68,3 +69,4 @@ def test_resolve_oauth_settings_prefers_runtime_config(tmp_path):
     assert resolved.cloudreve_base_url == "http://cloudreve.local"
     assert resolved.cloudreve_oauth_client_id == "runtime-client"
     assert resolved.cloudreve_oauth_client_secret == "runtime-secret"
+    assert resolved.cloudreve_oauth_scope == "openid offline_access"

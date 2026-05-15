@@ -8,7 +8,7 @@ Preferred configuration for production-like local development is OAuth app autho
 CLOUDREVE_OAUTH_CLIENT_ID=<client-id>
 CLOUDREVE_OAUTH_CLIENT_SECRET=<client-secret>
 CLOUDREVE_OAUTH_REDIRECT_URI=http://localhost:8000/api/auth/cloudreve/callback
-CLOUDREVE_OAUTH_SCOPE=offline_access
+CLOUDREVE_OAUTH_SCOPE="openid offline_access"
 CLOUDREVE_TOKEN_STORE_PATH=data/runtime/cloudreve_tokens.json
 CLOUDREVE_OAUTH_CONFIG_PATH=data/runtime/cloudreve_oauth_config.json
 ```
@@ -17,7 +17,7 @@ If you do not want to edit `.env`, the web console can save the OAuth app `Clien
 
 Open `GET /api/auth/cloudreve/start` from the Nexus API, or use the web console authorization button. After Cloudreve redirects back to `/api/auth/cloudreve/callback`, Nexus exchanges the code for tokens and saves them to `CLOUDREVE_TOKEN_STORE_PATH`. `CloudreveClient` reads that token store on startup, so worker and manual ingestion can recover after an access token expires.
 
-The web console authorization status actively calls Cloudreve's refresh endpoint before showing `authorized`. A token file that merely contains old tokens is not enough. If Cloudreve returns a refresh failure, the console should show that re-authorization is required.
+The `openid` scope is required by Cloudreve's OAuth authorization page, and `offline_access` is required to receive a `refresh_token`. The web console authorization status actively calls Cloudreve's refresh endpoint before showing `authorized`. A token file that merely contains old tokens is not enough. If Cloudreve returns a refresh failure, the console should show that re-authorization is required.
 
 Manual token configuration is still supported when OAuth app credentials are not available:
 

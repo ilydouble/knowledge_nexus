@@ -91,7 +91,7 @@ function App() {
           client_id: oauthClientId,
           client_secret: oauthClientSecret,
           redirect_uri: authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback",
-          scope: "offline_access",
+          scope: "openid offline_access",
         }),
       });
       setAuthConfig(nextConfig);
@@ -317,7 +317,7 @@ function App() {
           <div className="oauthSetup">
             <strong>{authConfig.configured ? "OAuth App 已配置" : "OAuth App 未配置"}</strong>
             <small>Redirect URI: {authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback"}</small>
-            <small>Scope: offline_access</small>
+            <small>Scope: openid offline_access</small>
             {!authConfig.configured ? (
               <>
                 <label>
