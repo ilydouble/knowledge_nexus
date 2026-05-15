@@ -4,6 +4,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from nexus.models import GraphRagRequest, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
@@ -48,6 +49,16 @@ def build_repository(settings: Settings) -> NexusRepository:
 
 def create_application(repository: NexusRepository | None = None, settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Knowledge Nexus API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app_settings = settings or Settings.from_env()
     repo = repository or build_repository(app_settings)
     permission_filter = PermissionFilter()
@@ -70,9 +81,11 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
 
     @app.post("/api/ingestion/sync")
     def sync(request: SyncRequest, process: bool = False, repository: NexusRepository = Depends(get_repository)):
-        job = IngestionService(repository).sync(request)
+        ingestion = IngestionService(repository)
+        job = ingestion.sync(request)
         if not process:
             return job
+        ingestion.mark_running(job.id)
         result = SemanticPipeline(
             cloudreve_token=app_settings.cloudreve_token,
             settings=app_settings,
@@ -80,7 +93,30 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             enable_neo4j=bool(app_settings.neo4j_uri),
             enable_milvus=bool(app_settings.milvus_host),
         ).process_file(uri=request.uri, requested_by=request.requested_by)
+        if result.success:
+            job = ingestion.mark_succeeded(job.id)
+        else:
+            job = ingestion.mark_failed(job.id, result.error or "processing failed")
         return {"job": job, "processing": _processing_result_to_dict(result)}
+
+    @app.get("/api/ingestion/jobs")
+    def list_jobs(repository: NexusRepository = Depends(get_repository)):
+        return IngestionService(repository).list_jobs()
+
+    @app.get("/api/documents")
+    def list_documents(repository: NexusRepository = Depends(get_repository)):
+        documents = repository.list_documents()
+        return [
+            {
+                "uri": document.uri,
+                "summary": document.summary,
+                "tags": document.tags,
+                "entities": document.entities,
+                "chunk_count": len(document.chunks),
+                "requested_by": document.requested_by,
+            }
+            for document in documents
+        ]
 
     @app.post("/api/ingestion/demo-index")
     def demo_index(payload: dict[str, str], repository: NexusRepository = Depends(get_repository)):

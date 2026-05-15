@@ -1,10 +1,15 @@
 from fastapi.testclient import TestClient
 
 from nexus.api import create_app
+from nexus.repositories.memory import InMemoryRepository
+
+
+def make_client():
+    return TestClient(create_app(repository=InMemoryRepository()))
 
 
 def test_health_endpoint_reports_service_status():
-    client = TestClient(create_app())
+    client = make_client()
 
     response = client.get("/health")
 
@@ -12,8 +17,23 @@ def test_health_endpoint_reports_service_status():
     assert response.json()["status"] == "ok"
 
 
+def test_api_allows_local_web_console_cors_preflight():
+    client = make_client()
+
+    response = client.options(
+        "/api/documents",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
 def test_sync_endpoint_creates_job():
-    client = TestClient(create_app())
+    client = make_client()
 
     response = client.post(
         "/api/ingestion/sync",
@@ -53,7 +73,7 @@ def test_sync_endpoint_can_process_file_through_pipeline(monkeypatch):
             return Result()
 
     monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
-    client = TestClient(create_app())
+    client = make_client()
 
     response = client.post(
         "/api/ingestion/sync?process=true",
@@ -62,14 +82,71 @@ def test_sync_endpoint_can_process_file_through_pipeline(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["job"]["status"] == "pending"
+    assert body["job"]["status"] == "succeeded"
     assert body["processing"]["success"] is True
     assert seen["uri"] == "cloudreve://my/demo.md"
     assert seen["requested_by"] == "user-1"
 
 
+def test_sync_endpoint_marks_failed_processing_job(monkeypatch):
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def process_file(self, uri, requested_by):
+            class Result:
+                success = False
+                summary = ""
+                tags = []
+                entities_count = 0
+                relations_count = 0
+                chunks_count = 0
+                error = "download failed"
+                processing_time_ms = 1
+
+            return Result()
+
+    monkeypatch.setattr("nexus.app_factory.SemanticPipeline", FakePipeline)
+    client = make_client()
+
+    response = client.post(
+        "/api/ingestion/sync?process=true",
+        json={"uri": "cloudreve://my/missing.md", "requested_by": "user-1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["job"]["status"] == "failed"
+    assert body["job"]["error"] == "download failed"
+
+
+def test_documents_and_jobs_endpoints_expose_processing_results():
+    client = make_client()
+    client.post(
+        "/api/ingestion/demo-index",
+        json={
+            "uri": "cloudreve://my/a.md",
+            "content": "Infrared sensor thermal calibration.",
+            "requested_by": "user-1",
+        },
+    )
+    client.post(
+        "/api/ingestion/sync",
+        json={"uri": "cloudreve://my/a.md", "requested_by": "user-1"},
+    )
+
+    documents = client.get("/api/documents")
+    jobs = client.get("/api/ingestion/jobs")
+
+    assert documents.status_code == 200
+    assert documents.json()[0]["uri"] == "cloudreve://my/a.md"
+    assert documents.json()[0]["chunk_count"] == 1
+    assert jobs.status_code == 200
+    assert jobs.json()[0]["uri"] == "cloudreve://my/a.md"
+
+
 def test_graphrag_answer_does_not_include_inaccessible_content():
-    client = TestClient(create_app())
+    client = make_client()
     client.post("/api/links", json={
         "source_uri": "cloudreve://my/public.md",
         "target_uri": "cloudreve://other/secret.md",
@@ -89,7 +166,7 @@ def test_graphrag_answer_does_not_include_inaccessible_content():
 
 
 def test_demo_index_endpoint_populates_file_knowledge_and_suggestions():
-    client = TestClient(create_app())
+    client = make_client()
     client.post(
         "/api/ingestion/demo-index",
         json={

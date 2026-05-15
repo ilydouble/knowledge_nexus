@@ -7,8 +7,9 @@ import json
 import logging
 
 from nexus.cloudreve.client import CloudreveClient
-from nexus.repository import InMemoryRepository
+from nexus.app_factory import build_repository
 from nexus.services.events import FileEventHandler
+from nexus.services.ingestion import IngestionService
 from nexus.services.pipeline import SemanticPipeline
 from nexus.settings import Settings
 
@@ -28,7 +29,8 @@ class Worker:
     
     def __init__(self) -> None:
         self.settings = Settings.from_env()
-        self.repository = InMemoryRepository()
+        self.repository = build_repository(self.settings)
+        self.ingestion = IngestionService(self.repository)
         self.handler = FileEventHandler(self.repository)
         self.client = CloudreveClient(token=self.settings.cloudreve_token)
         self.pipeline: SemanticPipeline | None = None
@@ -42,8 +44,8 @@ class Worker:
                     cloudreve_token=self.settings.cloudreve_token,
                     settings=self.settings,
                     repository=self.repository,
-                    enable_neo4j=bool(self.settings.neo4j_uri),
-                    enable_milvus=bool(self.settings.milvus_host),
+                    enable_neo4j=bool(getattr(self.settings, "neo4j_uri", "")),
+                    enable_milvus=bool(getattr(self.settings, "milvus_host", "")),
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize pipeline: {e}")
@@ -77,6 +79,11 @@ class Worker:
             logger.warning("Pipeline not available, skipping processing")
             return
         
+        jobs = self.handler.handle_events([event])
+        job = jobs[0] if jobs else None
+        if job:
+            self.ingestion.mark_running(job.id)
+
         try:
             # Process file through pipeline
             result = self.pipeline.process_file(
@@ -85,6 +92,8 @@ class Worker:
             )
             
             if result.success:
+                if job:
+                    self.ingestion.mark_succeeded(job.id)
                 logger.info(
                     f"Successfully processed {uri}: "
                     f"entities={result.entities_count}, "
@@ -93,9 +102,13 @@ class Worker:
                     f"time={result.processing_time_ms}ms"
                 )
             else:
+                if job:
+                    self.ingestion.mark_failed(job.id, result.error or "processing failed")
                 logger.error(f"Failed to process {uri}: {result.error}")
         
         except Exception as e:
+            if job:
+                self.ingestion.mark_failed(job.id, str(e))
             logger.error(f"Error processing {uri}: {e}")
     
     async def run(self) -> None:
@@ -135,11 +148,6 @@ class Worker:
             events = payload if isinstance(payload, list) else [payload]
             
             for evt in events:
-                # Create job record
-                jobs = self.handler.handle_events([evt])
-                if jobs:
-                    logger.info(f"Queued {len(jobs)} ingestion job(s)")
-                
                 # Process through pipeline
                 await self.process_event(evt)
 

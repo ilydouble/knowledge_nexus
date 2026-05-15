@@ -1,5 +1,6 @@
 import asyncio
 
+from nexus.models import IngestionJob
 from nexus.worker import watch_cloudreve_events
 
 
@@ -30,10 +31,26 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
             seen["client_id"] = client_id
             yield {"raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
-    monkeypatch.setattr("nexus.worker.InMemoryRepository", FakeRepository)
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def process_file(self, uri, requested_by):
+            class Result:
+                success = True
+                entities_count = 0
+                relations_count = 0
+                chunks_count = 0
+                processing_time_ms = 0
+                error = None
+
+            return Result()
+
+    monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
     monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
+    monkeypatch.setattr("nexus.worker.SemanticPipeline", FakePipeline)
 
     asyncio.run(watch_cloudreve_events())
 
@@ -46,15 +63,32 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
     seen = {}
 
     class FakeRepository:
-        pass
+        def __init__(self):
+            self.jobs = []
+
+        def add_job(self, job):
+            self.jobs.append(job)
+            return job
+
+        def update_job(self, job):
+            seen.setdefault("updated_statuses", []).append(job.status)
+            return job
+
+        def get_job(self, job_id):
+            for job in self.jobs:
+                if job.id == job_id:
+                    return job
+            return None
 
     class FakeHandler:
         def __init__(self, repository):
-            pass
+            self.repository = repository
 
         def handle_events(self, events):
             seen["jobs_for"] = events
-            return [object()]
+            job = IngestionJob(uri=events[0]["uri"], requested_by="worker")
+            self.repository.add_job(job)
+            return [job]
 
     class FakeSettings:
         cloudreve_token = "token-123"
@@ -90,7 +124,7 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
 
             return Result()
 
-    monkeypatch.setattr("nexus.worker.InMemoryRepository", FakeRepository)
+    monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
     monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
@@ -101,3 +135,38 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
     assert seen["jobs_for"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
     assert seen["processed_uri"] == "cloudreve://my/demo.md"
     assert seen["processed_by"] == "worker"
+    assert seen["updated_statuses"] == ["running", "succeeded"]
+
+
+def test_worker_uses_configured_repository_builder(monkeypatch):
+    seen = {}
+
+    class FakeRepository:
+        pass
+
+    class FakeSettings:
+        cloudreve_token = "token-123"
+        cloudreve_client_id = "client-id"
+        cloudreve_base_url = "http://localhost:5212"
+
+    class FakeClient:
+        def __init__(self, token=None):
+            pass
+
+        async def iter_file_events(self, uri="cloudreve://my", client_id=None):
+            if False:
+                yield {}
+
+    class FakeHandler:
+        def __init__(self, repository):
+            seen["handler_repository"] = repository
+
+    repository = FakeRepository()
+    monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
+    monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
+    monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
+    monkeypatch.setattr("nexus.worker.build_repository", lambda settings: repository)
+
+    asyncio.run(watch_cloudreve_events())
+
+    assert seen["handler_repository"] is repository
