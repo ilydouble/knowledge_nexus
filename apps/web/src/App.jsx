@@ -149,6 +149,10 @@ function App() {
 
   useEffect(() => {
     refresh().catch((error) => setMessage(error.message));
+    const timer = setInterval(() => {
+      refresh().catch(() => {});
+    }, 10_000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
