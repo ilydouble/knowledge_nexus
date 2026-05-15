@@ -62,6 +62,38 @@ def test_cloudreve_oauth_status_reports_token_store_state(tmp_path):
     assert response.json() == {"authorized": False}
 
 
+def test_cloudreve_oauth_config_can_be_saved_and_used_for_authorization(tmp_path):
+    settings = Settings(cloudreve_oauth_config_path=str(tmp_path / "oauth_config.json"))
+    client = make_client(settings=settings)
+
+    config_response = client.post(
+        "/api/auth/cloudreve/config",
+        json={
+            "cloudreve_base_url": "http://cloudreve.local",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "redirect_uri": "http://localhost:8000/api/auth/cloudreve/callback",
+            "scope": "offline_access",
+        },
+    )
+    start_response = client.get("/api/auth/cloudreve/start", follow_redirects=False)
+
+    assert config_response.status_code == 200
+    assert config_response.json()["configured"] is True
+    assert start_response.status_code == 307
+    assert start_response.headers["location"].startswith("http://cloudreve.local/session/authorize?")
+
+
+def test_cloudreve_oauth_start_reports_setup_required_when_config_missing(tmp_path):
+    settings = Settings(cloudreve_oauth_config_path=str(tmp_path / "missing.json"))
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/start", follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "oauth_config_required"
+
+
 def test_cloudreve_oauth_status_refreshes_token_before_reporting_authorized(monkeypatch, tmp_path):
     token_path = tmp_path / "tokens.json"
     token_path.write_text('{"access_token":"expired","refresh_token":"refresh-token"}', encoding="utf-8")

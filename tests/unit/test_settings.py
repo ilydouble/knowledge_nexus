@@ -101,3 +101,11 @@ def test_settings_loads_cloudreve_oauth_settings(monkeypatch):
     assert settings.cloudreve_oauth_redirect_uri == "http://localhost:8000/api/auth/cloudreve/callback"
     assert settings.cloudreve_oauth_scope == "offline_access"
     assert settings.cloudreve_token_store_path == "data/runtime/tokens.json"
+
+
+def test_settings_loads_cloudreve_oauth_config_path(monkeypatch):
+    monkeypatch.setenv("CLOUDREVE_OAUTH_CONFIG_PATH", "data/runtime/oauth_config.json")
+
+    settings = Settings.from_env()
+
+    assert settings.cloudreve_oauth_config_path == "data/runtime/oauth_config.json"

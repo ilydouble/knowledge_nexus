@@ -10,7 +10,10 @@ CLOUDREVE_OAUTH_CLIENT_SECRET=<client-secret>
 CLOUDREVE_OAUTH_REDIRECT_URI=http://localhost:8000/api/auth/cloudreve/callback
 CLOUDREVE_OAUTH_SCOPE=offline_access
 CLOUDREVE_TOKEN_STORE_PATH=data/runtime/cloudreve_tokens.json
+CLOUDREVE_OAUTH_CONFIG_PATH=data/runtime/cloudreve_oauth_config.json
 ```
+
+If you do not want to edit `.env`, the web console can save the OAuth app `Client ID` and `Client Secret` to `CLOUDREVE_OAUTH_CONFIG_PATH`. This file stores OAuth application configuration, not user access tokens. The user tokens are stored separately in `CLOUDREVE_TOKEN_STORE_PATH`.
 
 Open `GET /api/auth/cloudreve/start` from the Nexus API, or use the web console authorization button. After Cloudreve redirects back to `/api/auth/cloudreve/callback`, Nexus exchanges the code for tokens and saves them to `CLOUDREVE_TOKEN_STORE_PATH`. `CloudreveClient` reads that token store on startup, so worker and manual ingestion can recover after an access token expires.
 

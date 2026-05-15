@@ -44,6 +44,53 @@ class CloudreveOAuthTokenStore:
         }
 
 
+class CloudreveOAuthConfigStore:
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+
+    def load(self) -> dict[str, Any]:
+        if not self.path.is_file():
+            return {}
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def save(self, payload: dict[str, Any]) -> None:
+        allowed_keys = {"cloudreve_base_url", "client_id", "client_secret", "redirect_uri", "scope"}
+        values = {key: value for key, value in payload.items() if key in allowed_keys and value}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        existing = self.load()
+        existing.update(values)
+        self.path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def status(self) -> dict[str, Any]:
+        payload = self.load()
+        return {
+            "configured": bool(payload.get("client_id") and payload.get("client_secret")),
+            "cloudreve_base_url": payload.get("cloudreve_base_url"),
+            "redirect_uri": payload.get("redirect_uri"),
+            "scope": payload.get("scope") or "offline_access",
+            "client_id_set": bool(payload.get("client_id")),
+            "client_secret_set": bool(payload.get("client_secret")),
+        }
+
+
+def resolve_oauth_settings(settings: Settings) -> Settings:
+    config = CloudreveOAuthConfigStore(settings.cloudreve_oauth_config_path).load()
+    return Settings(
+        **{
+            **settings.__dict__,
+            "cloudreve_base_url": config.get("cloudreve_base_url") or settings.cloudreve_base_url,
+            "cloudreve_oauth_client_id": config.get("client_id") or settings.cloudreve_oauth_client_id,
+            "cloudreve_oauth_client_secret": config.get("client_secret") or settings.cloudreve_oauth_client_secret,
+            "cloudreve_oauth_redirect_uri": config.get("redirect_uri") or settings.cloudreve_oauth_redirect_uri,
+            "cloudreve_oauth_scope": config.get("scope") or settings.cloudreve_oauth_scope,
+        }
+    )
+
+
 def build_authorization_url(settings: Settings, *, state: str | None = None) -> str:
     if not settings.cloudreve_oauth_client_id:
         raise CloudreveOAuthError("CLOUDREVE_OAUTH_CLIENT_ID is required")

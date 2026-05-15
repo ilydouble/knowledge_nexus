@@ -8,11 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from nexus.cloudreve.oauth import (
+    CloudreveOAuthConfigStore,
     CloudreveOAuthError,
     CloudreveOAuthTokenStore,
     build_authorization_url,
     exchange_authorization_code,
     refresh_oauth_tokens,
+    resolve_oauth_settings,
 )
 from nexus.models import GraphRagRequest, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
@@ -87,19 +89,55 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             raise HTTPException(status_code=400, detail="token is required")
         return {"status": "bound"}
 
+    @app.get("/api/auth/cloudreve/config")
+    def get_cloudreve_oauth_config() -> dict[str, Any]:
+        config_store = CloudreveOAuthConfigStore(app_settings.cloudreve_oauth_config_path)
+        status = config_store.status()
+        resolved = resolve_oauth_settings(app_settings)
+        return {
+            **status,
+            "cloudreve_base_url": status.get("cloudreve_base_url") or resolved.cloudreve_base_url,
+            "redirect_uri": status.get("redirect_uri") or resolved.cloudreve_oauth_redirect_uri,
+            "scope": status.get("scope") or resolved.cloudreve_oauth_scope,
+        }
+
+    @app.post("/api/auth/cloudreve/config")
+    def save_cloudreve_oauth_config(payload: dict[str, str]) -> dict[str, Any]:
+        config_store = CloudreveOAuthConfigStore(app_settings.cloudreve_oauth_config_path)
+        config_store.save(
+            {
+                "cloudreve_base_url": payload.get("cloudreve_base_url") or app_settings.cloudreve_base_url,
+                "client_id": payload.get("client_id"),
+                "client_secret": payload.get("client_secret"),
+                "redirect_uri": payload.get("redirect_uri") or app_settings.cloudreve_oauth_redirect_uri,
+                "scope": payload.get("scope") or "offline_access",
+            }
+        )
+        return config_store.status()
+
     @app.get("/api/auth/cloudreve/start")
     def start_cloudreve_oauth() -> RedirectResponse:
+        oauth_settings = resolve_oauth_settings(app_settings)
         try:
-            return RedirectResponse(build_authorization_url(app_settings))
+            return RedirectResponse(build_authorization_url(oauth_settings))
         except CloudreveOAuthError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "oauth_config_required",
+                    "message": str(exc),
+                    "redirect_uri": oauth_settings.cloudreve_oauth_redirect_uri,
+                    "required_scope": "offline_access",
+                },
+            ) from exc
 
     @app.get("/api/auth/cloudreve/callback")
     def cloudreve_oauth_callback(code: str | None = None) -> dict[str, Any]:
         if not code:
             raise HTTPException(status_code=400, detail="code is required")
+        oauth_settings = resolve_oauth_settings(app_settings)
         try:
-            tokens = exchange_authorization_code(app_settings, code)
+            tokens = exchange_authorization_code(oauth_settings, code)
         except CloudreveOAuthError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         CloudreveOAuthTokenStore(app_settings.cloudreve_token_store_path).save(tokens)
@@ -115,8 +153,9 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         refresh_token = tokens.get("refresh_token")
         if not refresh_token:
             return {"authorized": False}
+        oauth_settings = resolve_oauth_settings(app_settings)
         try:
-            refreshed_tokens = refresh_oauth_tokens(app_settings, refresh_token)
+            refreshed_tokens = refresh_oauth_tokens(oauth_settings, refresh_token)
         except CloudreveOAuthError:
             return {"authorized": False, "has_refresh_token": True, "error": "refresh_failed"}
         store.save(refreshed_tokens)

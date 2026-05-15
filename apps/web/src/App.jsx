@@ -43,6 +43,9 @@ function App() {
   const [question, setQuestion] = useState("有哪些已经索引的文档？");
   const [answer, setAnswer] = useState(null);
   const [authStatus, setAuthStatus] = useState({ authorized: false });
+  const [authConfig, setAuthConfig] = useState({ configured: false });
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthClientSecret, setOauthClientSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -53,21 +56,52 @@ function App() {
   const processedUris = useMemo(() => new Set(documents.map((document) => document.uri)), [documents]);
 
   async function refresh() {
-    const [nextDocuments, nextJobs, nextAuthStatus] = await Promise.all([
+    const [nextDocuments, nextJobs, nextAuthStatus, nextAuthConfig] = await Promise.all([
       requestJson("/api/documents"),
       requestJson("/api/ingestion/jobs"),
       requestJson("/api/auth/cloudreve/status"),
+      requestJson("/api/auth/cloudreve/config"),
     ]);
     setDocuments(nextDocuments);
     setJobs(nextJobs);
     setAuthStatus(nextAuthStatus);
+    setAuthConfig(nextAuthConfig);
     if (!selectedUri && nextDocuments.length) {
       setSelectedUri(nextDocuments[0].uri);
     }
   }
 
   function authorizeCloudreve() {
+    if (!authConfig.configured) {
+      setMessage("请先在 Cloudreve 管理面板创建 OAuth App，并在这里保存 Client ID / Secret。");
+      return;
+    }
     window.location.assign(`${API_BASE}/api/auth/cloudreve/start`);
+  }
+
+  async function saveCloudreveOAuthConfig() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const nextConfig = await requestJson("/api/auth/cloudreve/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cloudreve_base_url: authConfig.cloudreve_base_url || "http://localhost:5212",
+          client_id: oauthClientId,
+          client_secret: oauthClientSecret,
+          redirect_uri: authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback",
+          scope: "offline_access",
+        }),
+      });
+      setAuthConfig(nextConfig);
+      setOauthClientSecret("");
+      setMessage(nextConfig.configured ? "Cloudreve OAuth 配置已保存，可以打开授权。" : "配置还不完整，请补齐 Client ID / Secret。");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function loadKnowledge(nextUri) {
@@ -278,6 +312,25 @@ function App() {
           <div className={`authState ${authStatus.authorized ? "ready" : ""}`}>
             <strong>{authStatus.authorized ? "授权可用" : "需要授权"}</strong>
             <small>{cloudreveAuthHint(authStatus)}</small>
+          </div>
+
+          <div className="oauthSetup">
+            <strong>{authConfig.configured ? "OAuth App 已配置" : "OAuth App 未配置"}</strong>
+            <small>Redirect URI: {authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback"}</small>
+            <small>Scope: offline_access</small>
+            {!authConfig.configured ? (
+              <>
+                <label>
+                  Client ID
+                  <input value={oauthClientId} onChange={(event) => setOauthClientId(event.target.value)} />
+                </label>
+                <label>
+                  Client Secret
+                  <input type="password" value={oauthClientSecret} onChange={(event) => setOauthClientSecret(event.target.value)} />
+                </label>
+                <button className="secondary" onClick={saveCloudreveOAuthConfig} disabled={busy}>保存 OAuth 配置</button>
+              </>
+            ) : null}
           </div>
           <button className="secondary" onClick={authorizeCloudreve} disabled={busy}>打开 Cloudreve 授权</button>
 
