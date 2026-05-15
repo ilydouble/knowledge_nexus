@@ -84,10 +84,12 @@ function useSim(rawNodes, rawEdges, width, height) {
         v[target].y -= dy * ATTRACTION * alpha;
       });
 
-      // Center gravity
+      // Center gravity — must also scale by alpha so it decays together with
+      // repulsion/attraction; otherwise it dominates as alpha→0 and collapses
+      // all nodes toward the center.
       nodeList.forEach(({ id }) => {
-        v[id].x += (width / 2 - p[id].x) * CENTER_PULL;
-        v[id].y += (height / 2 - p[id].y) * CENTER_PULL;
+        v[id].x += (width / 2 - p[id].x) * CENTER_PULL * alpha;
+        v[id].y += (height / 2 - p[id].y) * CENTER_PULL * alpha;
       });
 
       // Integrate
