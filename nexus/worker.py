@@ -55,69 +55,112 @@ class Worker:
             self._initialized = True
     
     async def process_event(self, event: dict) -> None:
-        """Process a single file event."""
+        """Queue a file event for later batch processing.
+
+        We deliberately do NOT run the semantic pipeline here.  Immediately
+        analysing every upload would:
+        - Fire LLM calls for every user action in real time
+        - Create uncontrolled concurrency with no back-pressure
+        - Duplicate work already picked up by the periodic scanner
+
+        Instead we just create a *pending* ingestion job.  The
+        ``process_pending_loop`` picks it up on its next tick.
+        """
         event_type = event.get("type", "")
-        
+
         if event_type not in self.PROCESSABLE_EVENTS:
-            logger.debug(f"Ignoring event type: {event_type}")
+            logger.debug("Ignoring event type: %s", event_type)
             return
-        
-        # Get file URI from event
+
         uri = event.get("to") or event.get("uri")
         if not uri:
-            logger.warning(f"No URI in event: {event}")
+            logger.warning("No URI in event: %s", event)
             return
-        
-        # Normalize URI
+
         if not uri.startswith("cloudreve://"):
             uri = f"cloudreve://my{uri if uri.startswith('/') else '/' + uri}"
-        
-        logger.info(f"Processing file: {uri} (event: {event_type})")
-        
-        # Ensure pipeline is initialized
-        self._ensure_pipeline()
-        
-        if self.pipeline is None:
-            logger.warning("Pipeline not available, skipping processing")
+
+        # Deduplicate: skip if a pending/running job already exists for this URI
+        existing = [
+            j for j in self.repository.list_jobs()
+            if j.uri == uri and j.status in ("pending", "running")
+        ]
+        if existing:
+            logger.debug("Job already queued for %s, skipping SSE duplicate", uri)
             return
-        
-        jobs = self.handler.handle_events([event])
-        job = jobs[0] if jobs else None
-        if job:
-            self.ingestion.mark_running(job.id)
-            self.ingestion.mark_stage(job.id, "download")
+
+        self.handler.handle_events([event])
+        logger.info("Queued pending job for %s (event: %s)", uri, event_type)
+
+    async def _process_one(self, job_id: str, uri: str) -> None:
+        """Run a single pending job through the semantic pipeline."""
+        self._ensure_pipeline()
+        if self.pipeline is None:
+            logger.warning("Pipeline not available, skipping %s", uri)
+            return
+
+        self.ingestion.mark_running(job_id)
+        self.ingestion.mark_stage(job_id, "download")
 
         try:
-            # Process file through pipeline
-            result = self.pipeline.process_file(
-                uri=uri,
-                requested_by="worker",
+            result = await asyncio.to_thread(
+                self.pipeline.process_file,
+                uri,
+                "batch-processor",
             )
-            
             if result.success:
-                if job:
-                    self.ingestion.mark_succeeded(job.id)
+                self.ingestion.mark_succeeded(job_id)
                 logger.info(
-                    f"Successfully processed {uri}: "
-                    f"entities={result.entities_count}, "
-                    f"relations={result.relations_count}, "
-                    f"chunks={result.chunks_count}, "
-                    f"time={result.processing_time_ms}ms"
+                    "Processed %s: entities=%d relations=%d chunks=%d time=%dms",
+                    uri,
+                    result.entities_count,
+                    result.relations_count,
+                    result.chunks_count,
+                    result.processing_time_ms,
                 )
             else:
-                if job:
-                    self.ingestion.mark_failed(
-                        job.id,
-                        result.error or "processing failed",
-                        stage=getattr(result, "stage", None) or "download",
-                        error_code=getattr(result, "error_code", None),
-                    )
-                logger.error(f"Failed to process {uri}: {result.error}")
-        
-        except Exception as e:
-            if job:
-                self.ingestion.mark_failed(job.id, str(e), stage="download", error_code="worker_exception")
-            logger.error(f"Error processing {uri}: {e}")
+                self.ingestion.mark_failed(
+                    job_id,
+                    result.error or "processing failed",
+                    stage=result.stage or "download",
+                    error_code=result.error_code,
+                )
+                logger.error("Failed to process %s: %s", uri, result.error)
+        except Exception as exc:
+            self.ingestion.mark_failed(job_id, str(exc), stage="download", error_code="worker_exception")
+            logger.error("Error processing %s: %s", uri, exc)
+
+    async def process_pending_loop(
+        self,
+        poll_interval_seconds: float = 30.0,
+        batch_size: int = 3,
+    ) -> None:
+        """Continuously consume pending ingestion jobs in small batches.
+
+        Args:
+            poll_interval_seconds: How often to check for new pending jobs.
+                Defaults to 30 s so the loop is responsive without hammering
+                the repository.
+            batch_size: Maximum jobs to process per tick.  Keeps LLM API
+                concurrency bounded; adjust to taste.
+        """
+        logger.info(
+            "Batch processor starting (poll=%.0fs, batch_size=%d)",
+            poll_interval_seconds,
+            batch_size,
+        )
+        while True:
+            pending = [j for j in self.repository.list_jobs() if j.status == "pending"]
+            if pending:
+                batch = pending[:batch_size]
+                logger.info(
+                    "Processing batch of %d job(s) (%d total pending)",
+                    len(batch),
+                    len(pending),
+                )
+                for job in batch:
+                    await self._process_one(job.id, job.uri)
+            await asyncio.sleep(poll_interval_seconds)
     
     async def run(self) -> None:
         """Run the worker, listening for Cloudreve events."""
@@ -183,8 +226,26 @@ class Worker:
         self,
         reconnect_delay_seconds: float = 5.0,
         scan_interval_seconds: float = 600.0,
+        poll_interval_seconds: float = 30.0,
+        batch_size: int = 3,
     ) -> None:
-        """Keep the worker alive, running the SSE listener and periodic scanner concurrently."""
+        """Keep the worker alive with three concurrent loops.
+
+        Loop 1 – SSE listener
+            Stays connected to Cloudreve's event stream.  On upload/rename
+            events it creates a *pending* job (no immediate LLM call).
+            Reconnects automatically on disconnect.
+
+        Loop 2 – Periodic scanner  (default: every 10 min)
+            Walks the entire Cloudreve drive and creates pending jobs for any
+            file that has no existing job or document.  This is the primary
+            discovery mechanism and catches files missed by SSE.
+
+        Loop 3 – Batch processor  (default: every 30 s, up to 3 jobs/tick)
+            Picks up pending jobs and runs them through the semantic pipeline
+            (download → parse → LLM extract → store).  Processing is decoupled
+            from discovery, giving us natural back-pressure and rate control.
+        """
 
         async def _sse_loop() -> None:
             while True:
@@ -207,6 +268,7 @@ class Worker:
         await asyncio.gather(
             _sse_loop(),
             self.scan_loop(scan_interval_seconds),
+            self.process_pending_loop(poll_interval_seconds, batch_size),
         )
 
 

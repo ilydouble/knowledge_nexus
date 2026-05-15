@@ -8,7 +8,8 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
     seen = {}
 
     class FakeRepository:
-        pass
+        def list_jobs(self):
+            return []
 
     class FakeHandler:
         def __init__(self, repository):
@@ -31,35 +32,25 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
             seen["client_id"] = client_id
             yield {"raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
-    class FakePipeline:
-        def __init__(self, **kwargs):
-            pass
-
-        def process_file(self, uri, requested_by):
-            class Result:
-                success = True
-                entities_count = 0
-                relations_count = 0
-                chunks_count = 0
-                processing_time_ms = 0
-                error = None
-
-            return Result()
-
     monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
     monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
-    monkeypatch.setattr("nexus.worker.SemanticPipeline", FakePipeline)
 
     asyncio.run(watch_cloudreve_events())
 
     assert seen["token"] is None
     assert seen["client_id"] == "knowledge-nexus-worker"
+    # process_event now only queues; handle_events is still called to create the job
     assert seen["events"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
 
 
-def test_worker_processes_file_events_with_pipeline(monkeypatch):
+def test_worker_queues_file_events_without_immediate_processing(monkeypatch):
+    """SSE events should create pending jobs only; pipeline is NOT called inline.
+
+    Actual processing is deferred to process_pending_loop so that LLM calls
+    are batched and rate-controlled rather than fired on every upload event.
+    """
     seen = {}
 
     class FakeRepository:
@@ -68,13 +59,10 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
 
         def add_job(self, job):
             self.jobs.append(job)
+            seen.setdefault("queued_uris", []).append(job.uri)
             return job
 
         def update_job(self, job):
-            seen.setdefault("updated_statuses", []).append(job.status)
-            for index, existing in enumerate(self.jobs):
-                if existing.id == job.id:
-                    self.jobs[index] = job
             return job
 
         def get_job(self, job_id):
@@ -82,6 +70,9 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
                 if job.id == job_id:
                     return job
             return None
+
+        def list_jobs(self):
+            return list(self.jobs)
 
     class FakeHandler:
         def __init__(self, repository):
@@ -108,45 +99,27 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
             yield {"type": "connected"}
             yield {"type": "event", "raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
-    class FakePipeline:
-        def __init__(self, *, cloudreve_token, settings, repository, enable_neo4j, enable_milvus):
-            seen["pipeline_token"] = cloudreve_token
-            seen["pipeline_repository"] = repository
-
-        def process_file(self, uri, requested_by):
-            seen["processed_uri"] = uri
-            seen["processed_by"] = requested_by
-
-            class Result:
-                success = True
-                entities_count = 1
-                relations_count = 0
-                chunks_count = 1
-                processing_time_ms = 5
-                error = None
-
-            return Result()
-
     monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
     monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
-    monkeypatch.setattr("nexus.worker.SemanticPipeline", FakePipeline)
 
     asyncio.run(watch_cloudreve_events())
 
+    # Job was created via handle_events
     assert seen["jobs_for"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
-    assert seen["pipeline_token"] is None
-    assert seen["processed_uri"] == "cloudreve://my/demo.md"
-    assert seen["processed_by"] == "worker"
-    assert seen["updated_statuses"] == ["running", "running", "succeeded"]
+    # A pending job was queued for the URI
+    assert "cloudreve://my/demo.md" in seen.get("queued_uris", [])
+    # Pipeline was NOT called (no "processed_uri" recorded)
+    assert "processed_uri" not in seen
 
 
 def test_worker_uses_configured_repository_builder(monkeypatch):
     seen = {}
 
     class FakeRepository:
-        pass
+        def list_jobs(self):
+            return []
 
     class FakeSettings:
         cloudreve_token = "token-123"
@@ -177,6 +150,11 @@ def test_worker_uses_configured_repository_builder(monkeypatch):
 
 
 def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):
+    """run_forever should reconnect the SSE loop after it closes.
+
+    The worker now runs three concurrent loops (SSE, scan, process_pending).
+    We patch all three so the test only exercises the reconnect logic.
+    """
     seen = {"runs": 0, "sleeps": 0}
     worker = Worker.__new__(Worker)
 
@@ -187,7 +165,16 @@ def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):
         seen["sleeps"] += 1
         raise KeyboardInterrupt
 
+    # Stub out the two new loops so they don't touch uninitialized state
+    async def fake_scan_loop(interval=600.0):
+        pass  # exits immediately
+
+    async def fake_process_pending_loop(poll=30.0, batch=3):
+        pass  # exits immediately
+
     monkeypatch.setattr(worker, "run", fake_run)
+    monkeypatch.setattr(worker, "scan_loop", fake_scan_loop)
+    monkeypatch.setattr(worker, "process_pending_loop", fake_process_pending_loop)
     monkeypatch.setattr("nexus.worker.asyncio.sleep", fake_sleep)
 
     try:
