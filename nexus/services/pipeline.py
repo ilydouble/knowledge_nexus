@@ -49,7 +49,7 @@ class SemanticPipeline:
     
     def __init__(
         self,
-        cloudreve_token: str,
+        cloudreve_token: str | None,
         settings: Settings | None = None,
         repository: NexusRepository | None = None,
         enable_neo4j: bool = True,

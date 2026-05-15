@@ -23,6 +23,16 @@ function statusLabel(status) {
   return labels[status] || status;
 }
 
+function cloudreveAuthHint(authStatus) {
+  if (authStatus.error === "refresh_failed") {
+    return "refresh token 已失效，请重新授权";
+  }
+  if (authStatus.has_refresh_token) {
+    return "refresh token 已验证";
+  }
+  return "尚未保存 refresh token";
+}
+
 function App() {
   const [documents, setDocuments] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -267,7 +277,7 @@ function App() {
           <h2>Cloudreve 授权</h2>
           <div className={`authState ${authStatus.authorized ? "ready" : ""}`}>
             <strong>{authStatus.authorized ? "授权可用" : "需要授权"}</strong>
-            <small>{authStatus.has_refresh_token ? "已保存 refresh token" : "尚未保存 refresh token"}</small>
+            <small>{cloudreveAuthHint(authStatus)}</small>
           </div>
           <button className="secondary" onClick={authorizeCloudreve} disabled={busy}>打开 Cloudreve 授权</button>
 

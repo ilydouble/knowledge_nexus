@@ -14,6 +14,8 @@ CLOUDREVE_TOKEN_STORE_PATH=data/runtime/cloudreve_tokens.json
 
 Open `GET /api/auth/cloudreve/start` from the Nexus API, or use the web console authorization button. After Cloudreve redirects back to `/api/auth/cloudreve/callback`, Nexus exchanges the code for tokens and saves them to `CLOUDREVE_TOKEN_STORE_PATH`. `CloudreveClient` reads that token store on startup, so worker and manual ingestion can recover after an access token expires.
 
+The web console authorization status actively calls Cloudreve's refresh endpoint before showing `authorized`. A token file that merely contains old tokens is not enough. If Cloudreve returns a refresh failure, the console should show that re-authorization is required.
+
 Manual token configuration is still supported when OAuth app credentials are not available:
 
 ```bash

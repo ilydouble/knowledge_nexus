@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import requests
 
-from nexus.cloudreve.oauth import CloudreveOAuthTokenStore
+from nexus.cloudreve.oauth import CloudreveOAuthError, CloudreveOAuthTokenStore, refresh_oauth_tokens
 from nexus.settings import Settings
 
 
@@ -72,15 +72,11 @@ class CloudreveClient:
     def refresh_access_token_sync(self) -> bool:
         if not self.refresh_token:
             return False
-        response = requests.post(
-            f"{self.base_url}/api/v4/session/token/refresh",
-            json={"refresh_token": self.refresh_token},
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=self.timeout,
-        )
-        if response.status_code != 200:
+        settings = Settings.from_env()
+        try:
+            data = refresh_oauth_tokens(settings, self.refresh_token)
+        except CloudreveOAuthError:
             return False
-        data = self.unwrap_response(response)
         access_token = data.get("access_token") if isinstance(data, dict) else None
         refresh_token = data.get("refresh_token") if isinstance(data, dict) else None
         if not access_token:
@@ -88,7 +84,7 @@ class CloudreveClient:
         self.token = access_token
         if refresh_token:
             self.refresh_token = refresh_token
-        CloudreveOAuthTokenStore(Settings.from_env().cloudreve_token_store_path).save(data)
+        CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).save(data)
         return True
 
     async def list_files(self, uri: str) -> Any:

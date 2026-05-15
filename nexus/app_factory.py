@@ -12,6 +12,7 @@ from nexus.cloudreve.oauth import (
     CloudreveOAuthTokenStore,
     build_authorization_url,
     exchange_authorization_code,
+    refresh_oauth_tokens,
 )
 from nexus.models import GraphRagRequest, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
@@ -109,7 +110,17 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
 
     @app.get("/api/auth/cloudreve/status")
     def cloudreve_oauth_status() -> dict[str, Any]:
-        return CloudreveOAuthTokenStore(app_settings.cloudreve_token_store_path).status()
+        store = CloudreveOAuthTokenStore(app_settings.cloudreve_token_store_path)
+        tokens = store.load()
+        refresh_token = tokens.get("refresh_token")
+        if not refresh_token:
+            return {"authorized": False}
+        try:
+            refreshed_tokens = refresh_oauth_tokens(app_settings, refresh_token)
+        except CloudreveOAuthError:
+            return {"authorized": False, "has_refresh_token": True, "error": "refresh_failed"}
+        store.save(refreshed_tokens)
+        return store.status()
 
     @app.post("/api/ingestion/sync")
     def sync(request: SyncRequest, process: bool = False, repository: NexusRepository = Depends(get_repository)):
@@ -129,7 +140,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         ingestion = IngestionService(repository)
         job = ingestion.mark_running(job_id)
         result = SemanticPipeline(
-            cloudreve_token=app_settings.cloudreve_token,
+            cloudreve_token=None,
             settings=app_settings,
             repository=repository,
             enable_neo4j=bool(app_settings.neo4j_uri),

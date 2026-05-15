@@ -84,3 +84,15 @@ def exchange_authorization_code(settings: Settings, code: str) -> dict[str, Any]
     )
     response.raise_for_status()
     return unwrap_token_response(response.json())
+
+
+def refresh_oauth_tokens(settings: Settings, refresh_token: str) -> dict[str, Any]:
+    response = requests.post(
+        f"{settings.cloudreve_base_url.rstrip('/')}/api/v4/session/token/refresh",
+        json={"refresh_token": refresh_token},
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        timeout=20,
+    )
+    if response.status_code != 200:
+        raise CloudreveOAuthError("refresh_failed")
+    return unwrap_token_response(response.json())

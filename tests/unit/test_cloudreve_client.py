@@ -36,6 +36,22 @@ def test_cloudreve_client_uses_settings_default_base_url(monkeypatch):
     assert client.base_url == "http://localhost:5212"
 
 
+def test_cloudreve_client_prefers_oauth_token_store_over_legacy_env_token(monkeypatch, tmp_path):
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text(
+        '{"access_token":"store-access","refresh_token":"store-refresh"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLOUDREVE_TOKEN_STORE_PATH", str(token_path))
+    monkeypatch.setenv("CLOUDREVE_ACCESS_TOKEN", "expired-env-access")
+    monkeypatch.delenv("CLOUDREVE_REFRESH_TOKEN", raising=False)
+
+    client = CloudreveClient()
+
+    assert client.token == "store-access"
+    assert client.refresh_token == "store-refresh"
+
+
 def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
     seen = {}
 

@@ -32,7 +32,7 @@ class Worker:
         self.repository = build_repository(self.settings)
         self.ingestion = IngestionService(self.repository)
         self.handler = FileEventHandler(self.repository)
-        self.client = CloudreveClient(token=self.settings.cloudreve_token)
+        self.client = CloudreveClient()
         self.pipeline: SemanticPipeline | None = None
         self._initialized = False
     
@@ -41,7 +41,7 @@ class Worker:
         if not self._initialized:
             try:
                 self.pipeline = SemanticPipeline(
-                    cloudreve_token=self.settings.cloudreve_token,
+                    cloudreve_token=None,
                     settings=self.settings,
                     repository=self.repository,
                     enable_neo4j=bool(getattr(self.settings, "neo4j_uri", "")),

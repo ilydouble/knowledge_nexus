@@ -54,7 +54,7 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
 
     asyncio.run(watch_cloudreve_events())
 
-    assert seen["token"] == "token-123"
+    assert seen["token"] is None
     assert seen["client_id"] == "knowledge-nexus-worker"
     assert seen["events"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
 
@@ -133,6 +133,7 @@ def test_worker_processes_file_events_with_pipeline(monkeypatch):
     asyncio.run(watch_cloudreve_events())
 
     assert seen["jobs_for"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
+    assert seen["pipeline_token"] is None
     assert seen["processed_uri"] == "cloudreve://my/demo.md"
     assert seen["processed_by"] == "worker"
     assert seen["updated_statuses"] == ["running", "succeeded"]

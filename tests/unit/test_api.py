@@ -62,6 +62,56 @@ def test_cloudreve_oauth_status_reports_token_store_state(tmp_path):
     assert response.json() == {"authorized": False}
 
 
+def test_cloudreve_oauth_status_refreshes_token_before_reporting_authorized(monkeypatch, tmp_path):
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text('{"access_token":"expired","refresh_token":"refresh-token"}', encoding="utf-8")
+    settings = Settings(cloudreve_base_url="http://cloudreve.local", cloudreve_token_store_path=str(token_path))
+    seen = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"code": 0, "data": {"access_token": "fresh", "refresh_token": "fresh-refresh"}, "msg": ""}
+
+    def fake_post(url, *, json, headers, timeout):
+        seen["url"] = url
+        seen["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", fake_post)
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/status")
+
+    assert response.status_code == 200
+    assert response.json()["authorized"] is True
+    assert response.json()["has_refresh_token"] is True
+    assert seen["url"] == "http://cloudreve.local/api/v4/session/token/refresh"
+    assert seen["json"] == {"refresh_token": "refresh-token"}
+
+
+def test_cloudreve_oauth_status_reports_refresh_failure(monkeypatch, tmp_path):
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text('{"access_token":"expired","refresh_token":"expired-refresh"}', encoding="utf-8")
+    settings = Settings(cloudreve_base_url="http://cloudreve.local", cloudreve_token_store_path=str(token_path))
+
+    class FakeResponse:
+        status_code = 401
+
+        def json(self):
+            return {"code": 401, "msg": "invalid refresh token"}
+
+    monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", lambda *args, **kwargs: FakeResponse())
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/status")
+
+    assert response.status_code == 200
+    assert response.json()["authorized"] is False
+    assert response.json()["error"] == "refresh_failed"
+
+
 def test_cloudreve_oauth_callback_exchanges_code_and_saves_tokens(monkeypatch, tmp_path):
     settings = Settings(
         cloudreve_base_url="http://cloudreve.local",
@@ -86,10 +136,26 @@ def test_cloudreve_oauth_callback_exchanges_code_and_saves_tokens(monkeypatch, t
                 "refresh_token_expires_in": 7776000,
             }
 
-    def fake_post(url, *, data, headers, timeout):
+    class FakeRefreshResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "code": 0,
+                "data": {
+                    "access_token": "fresh-access-token",
+                    "refresh_token": "fresh-refresh-token",
+                },
+                "msg": "",
+            }
+
+    def fake_post(url, *, data=None, json=None, headers, timeout):
         seen["url"] = url
-        seen["data"] = data
-        return FakeResponse()
+        if url.endswith("/api/v4/session/oauth/token"):
+            seen["data"] = data
+            return FakeResponse()
+        seen["refresh_json"] = json
+        return FakeRefreshResponse()
 
     monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", fake_post)
     client = make_client(settings=settings)
