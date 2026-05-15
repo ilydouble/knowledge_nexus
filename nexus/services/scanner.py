@@ -128,7 +128,21 @@ class CloudreveScanner:
         return result
 
     async def _walk(self, uri: str, collected: list[str]) -> None:
-        """Recursively list *uri* and append file URIs to *collected*."""
+        """Recursively list *uri* and append file URIs to *collected*.
+
+        Cloudreve Pro v4 response shape (unwrapped ``data`` field)::
+
+            {
+                "files": [
+                    {"type": 0, "id": "...", "name": "...", "path": "cloudreve://my/file.pdf", ...},
+                    {"type": 1, "id": "...", "name": "folder",  "path": "cloudreve://my/folder",  ...},
+                ],
+                "parent": {...}, "pagination": {...}, ...
+            }
+
+        ``type == 0`` → file, ``type == 1`` → directory.
+        The ``path`` field is the full Cloudreve URI.
+        """
         try:
             items = await self.client.list_files(uri)
         except CloudreveError as exc:
@@ -138,20 +152,32 @@ class CloudreveScanner:
         if not items:
             return
 
-        # Cloudreve v4 returns {"objects": [...]} inside the unwrapped data.
-        # Guard against other shapes (list, plain items key, etc.).
+        # Cloudreve Pro v4 → dict with "files" key.
+        # Fallback shapes: "objects" / "items" key, or bare list.
         if isinstance(items, dict):
-            objects = items.get("objects") or items.get("items") or []
+            objects = (
+                items.get("files")
+                or items.get("objects")
+                or items.get("items")
+                or []
+            )
         elif isinstance(items, list):
             objects = items
         else:
             return
 
         for obj in objects:
-            obj_uri: str = obj.get("uri") or obj.get("path") or ""
+            # "path" is the full cloudreve:// URI in Pro v4.
+            # Fall back to legacy "uri" field.
+            obj_uri: str = obj.get("path") or obj.get("uri") or ""
             if not obj_uri:
                 continue
-            is_dir = obj.get("type") == "dir" or bool(obj.get("is_dir"))
+
+            # Pro v4: type 0 = file, type 1 = directory.
+            # Legacy string types: "dir" / "file".
+            raw_type = obj.get("type")
+            is_dir = raw_type == 1 or raw_type == "dir" or bool(obj.get("is_dir"))
+
             if is_dir:
                 await self._walk(obj_uri, collected)
             else:

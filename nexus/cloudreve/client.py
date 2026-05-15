@@ -87,37 +87,53 @@ class CloudreveClient:
         CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).save(data)
         return True
 
+    def _list_files_sync(self, uri: str) -> Any:
+        """Synchronous helper – uses *requests* which works reliably with Cloudreve Pro v4.
+
+        Cloudreve Pro v4 endpoint: GET /api/v4/file  (NOT /api/v4/file/list)
+        Response shape: {"code": 0, "data": {"files": [...], "parent": {...}, ...}}
+        Each file object has a ``path`` field with the full cloudreve:// URI.
+        """
+        url = f"{self.base_url}/api/v4/file"
+        response = requests.get(url, params={"uri": uri}, headers=self._headers(), timeout=self.timeout)
+        if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
+            response = requests.get(url, params={"uri": uri}, headers=self._headers(), timeout=self.timeout)
+        if response.status_code != 200:
+            self._raise_http_error(response.status_code, endpoint="/api/v4/file")
+        payload = response.json()
+        code = payload.get("code")
+        if code != 0:
+            if self._is_auth_code(code) and self.refresh_access_token_sync():
+                return self._list_files_sync(uri)
+            raise CloudreveError(code=code, message=payload.get("msg") or "Unknown Cloudreve error")
+        return payload.get("data")
+
     async def list_files(self, uri: str) -> Any:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, headers=self._headers()) as client:
-            response = await client.get("/api/v4/file/list", params={"uri": uri})
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            if self._is_auth_status(exc.response.status_code) and self.refresh_access_token_sync():
-                return await self.list_files(uri)
-            self._raise_http_error(exc.response.status_code, endpoint="/api/v4/file/list")
-        try:
-            return self.unwrap_response(response)
-        except CloudreveError as exc:
-            if self._is_auth_code(exc.code) and self.refresh_access_token_sync():
-                return await self.list_files(uri)
-            raise
+        import asyncio
+        return await asyncio.to_thread(self._list_files_sync, uri)
+
+    def _get_metadata_sync(self, uri: str) -> Any:
+        """Synchronous helper for file metadata.
+
+        Cloudreve Pro v4 endpoint: GET /api/v4/file/info  (NOT /api/v4/file/metadata)
+        """
+        url = f"{self.base_url}/api/v4/file/info"
+        response = requests.get(url, params={"uri": uri}, headers=self._headers(), timeout=self.timeout)
+        if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
+            response = requests.get(url, params={"uri": uri}, headers=self._headers(), timeout=self.timeout)
+        if response.status_code != 200:
+            self._raise_http_error(response.status_code, endpoint="/api/v4/file/info")
+        payload = response.json()
+        code = payload.get("code")
+        if code != 0:
+            if self._is_auth_code(code) and self.refresh_access_token_sync():
+                return self._get_metadata_sync(uri)
+            raise CloudreveError(code=code, message=payload.get("msg") or "Unknown Cloudreve error")
+        return payload.get("data")
 
     async def get_metadata(self, uri: str) -> Any:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, headers=self._headers()) as client:
-            response = await client.get("/api/v4/file/metadata", params={"uri": uri})
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            if self._is_auth_status(exc.response.status_code) and self.refresh_access_token_sync():
-                return await self.get_metadata(uri)
-            self._raise_http_error(exc.response.status_code, endpoint="/api/v4/file/metadata")
-        try:
-            return self.unwrap_response(response)
-        except CloudreveError as exc:
-            if self._is_auth_code(exc.code) and self.refresh_access_token_sync():
-                return await self.get_metadata(uri)
-            raise
+        import asyncio
+        return await asyncio.to_thread(self._get_metadata_sync, uri)
 
     async def can_access(self, uri: str) -> bool:
         try:
@@ -129,16 +145,9 @@ class CloudreveClient:
             raise
 
     async def get_file_content(self, uri: str) -> bytes:
-        """Download file content from Cloudreve."""
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=60.0, headers=self._headers()) as client:
-            response = await client.get("/api/v4/file/content", params={"uri": uri})
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            if self._is_auth_status(exc.response.status_code) and self.refresh_access_token_sync():
-                return await self.get_file_content(uri)
-            self._raise_http_error(exc.response.status_code, endpoint="/api/v4/file/content")
-        return response.content
+        """Download file content from Cloudreve (async wrapper over sync implementation)."""
+        import asyncio
+        return await asyncio.to_thread(self.get_file_content_sync, uri)
 
     def get_file_content_sync(self, uri: str) -> bytes:
         """Download file content from Cloudreve (synchronous)."""
