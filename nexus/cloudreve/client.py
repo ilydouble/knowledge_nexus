@@ -101,11 +101,16 @@ class CloudreveClient:
         case the caller should surface an error asking the user to re-authorize
         via /api/auth/cloudreve/start.
         """
-        if not self.refresh_token:
-            return False
         settings = Settings.from_env()
+        # Always reload the latest refresh token from the file – the worker
+        # process may have started with a stale in-memory token that has since
+        # been rotated by another process (e.g. a test script or the API server).
+        stored = CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).load()
+        fresh_rt = stored.get("refresh_token") or self.refresh_token
+        if not fresh_rt:
+            return False
         try:
-            data = refresh_oauth_tokens(settings, self.refresh_token)
+            data = refresh_oauth_tokens(settings, fresh_rt)
         except CloudreveOAuthError:
             return False
         access_token = data.get("access_token") if isinstance(data, dict) else None
