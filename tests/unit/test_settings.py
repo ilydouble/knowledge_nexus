@@ -14,10 +14,30 @@ def test_settings_loads_database_url_from_environment(monkeypatch):
 
 def test_settings_missing_optional_ai_key_does_not_crash(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
 
     settings = Settings.from_env()
 
     assert settings.openai_api_key is None
+    assert settings.zhipu_api_key is None
+
+
+def test_settings_defaults_to_glm47_for_llm_extraction(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.llm_provider == "zhipu"
+    assert settings.llm_model == "glm-4.7"
+
+
+def test_settings_loads_zhipu_api_key_from_environment(monkeypatch):
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-key")
+
+    settings = Settings.from_env()
+
+    assert settings.zhipu_api_key == "zhipu-key"
 
 
 def test_settings_default_vector_backend_is_milvus(monkeypatch):

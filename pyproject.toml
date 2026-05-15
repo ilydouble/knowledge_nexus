@@ -1,0 +1,32 @@
+[project]
+name = "knowledge-nexus"
+version = "0.1.0"
+description = "Knowledge Nexus semantic cloud-drive sidecar for Cloudreve."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "marshmallow<4",
+  "neo4j>=5.26",
+  "pdfplumber>=0.11",
+  "psycopg[binary]>=3.2",
+  "pymilvus>=2.3,<2.4",
+  "python-docx>=1.1",
+  "pydantic>=2.12",
+  "requests>=2.32",
+  "setuptools<81",
+  "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["nexus*"]
+exclude = ["apps*", "data*", "docs*", "infrastructure*", "packages*", "scripts*", "services*", "tests*"]

@@ -41,6 +41,10 @@ class Settings:
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     openai_api_key: str | None = None
+    zhipu_api_key: str | None = None
+    llm_provider: str = "zhipu"
+    llm_model: str = "glm-4.7"
+    llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
     nexus_storage_backend: str = "memory"
 
     @classmethod
@@ -66,5 +70,9 @@ class Settings:
             minio_access_key=env("MINIO_ACCESS_KEY", cls.minio_access_key) or cls.minio_access_key,
             minio_secret_key=env("MINIO_SECRET_KEY", cls.minio_secret_key) or cls.minio_secret_key,
             openai_api_key=env("OPENAI_API_KEY") or None,
+            zhipu_api_key=env("ZHIPU_API_KEY") or env("BIGMODEL_API_KEY") or None,
+            llm_provider=env("LLM_PROVIDER", cls.llm_provider) or cls.llm_provider,
+            llm_model=env("LLM_MODEL", cls.llm_model) or cls.llm_model,
+            llm_base_url=env("LLM_BASE_URL", cls.llm_base_url) or cls.llm_base_url,
             nexus_storage_backend=env("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend) or cls.nexus_storage_backend,
         )

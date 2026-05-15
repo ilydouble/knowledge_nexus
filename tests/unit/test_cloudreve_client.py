@@ -39,34 +39,17 @@ def test_cloudreve_client_uses_settings_default_base_url(monkeypatch):
 def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
     seen = {}
 
-    class FakeStreamResponse:
-        def __init__(self):
-            self.request = httpx.Request("GET", "http://localhost:5212/api/v4/file/events")
-            self.response = httpx.Response(502, request=self.request)
+    class FakeResponse:
+        status_code = 502
 
-        async def __aenter__(self):
-            return self
+        def iter_lines(self, decode_unicode=True):
+            return iter(())
 
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
+    def fake_get(url, *, params, headers, stream, timeout):
+        seen["headers"] = headers
+        return FakeResponse()
 
-        def raise_for_status(self):
-            raise httpx.HTTPStatusError("bad gateway", request=self.request, response=self.response)
-
-    class FakeAsyncClient:
-        def __init__(self, *args, **kwargs):
-            seen["headers"] = kwargs.get("headers", {})
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        def stream(self, *args, **kwargs):
-            return FakeStreamResponse()
-
-    monkeypatch.setattr("nexus.cloudreve.client.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("nexus.cloudreve.client.requests.get", fake_get)
 
     client = CloudreveClient(base_url="http://localhost:5212", token="U_qfDZdYiMTYn15zm9NHSON9CHf6LM49ark_KQgptA0")
 
