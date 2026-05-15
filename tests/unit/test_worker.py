@@ -1,7 +1,7 @@
 import asyncio
 
 from nexus.models import IngestionJob
-from nexus.worker import watch_cloudreve_events
+from nexus.worker import Worker, watch_cloudreve_events
 
 
 def test_worker_passes_cloudreve_client_id(monkeypatch):
@@ -170,3 +170,26 @@ def test_worker_uses_configured_repository_builder(monkeypatch):
     asyncio.run(watch_cloudreve_events())
 
     assert seen["handler_repository"] is repository
+
+
+def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):
+    seen = {"runs": 0, "sleeps": 0}
+    worker = Worker.__new__(Worker)
+
+    async def fake_run():
+        seen["runs"] += 1
+
+    async def fake_sleep(delay):
+        seen["sleeps"] += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "run", fake_run)
+    monkeypatch.setattr("nexus.worker.asyncio.sleep", fake_sleep)
+
+    try:
+        asyncio.run(worker.run_forever(reconnect_delay_seconds=0.01))
+    except KeyboardInterrupt:
+        pass
+
+    assert seen["runs"] == 1
+    assert seen["sleeps"] == 1

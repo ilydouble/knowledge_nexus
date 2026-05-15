@@ -151,6 +151,25 @@ class Worker:
                 # Process through pipeline
                 await self.process_event(evt)
 
+    async def run_forever(self, reconnect_delay_seconds: float = 5.0) -> None:
+        """Keep the worker alive across SSE disconnects."""
+        while True:
+            try:
+                await self.run()
+                logger.warning(
+                    "Cloudreve event stream closed; reconnecting in %.1fs",
+                    reconnect_delay_seconds,
+                )
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "Worker event loop failed: %s; reconnecting in %.1fs",
+                    exc,
+                    reconnect_delay_seconds,
+                )
+            await asyncio.sleep(reconnect_delay_seconds)
+
 
 async def watch_cloudreve_events() -> None:
     """Legacy function for backward compatibility."""
@@ -161,7 +180,7 @@ async def watch_cloudreve_events() -> None:
 def main() -> None:
     """Main entry point."""
     worker = Worker()
-    asyncio.run(worker.run())
+    asyncio.run(worker.run_forever())
 
 
 if __name__ == "__main__":
