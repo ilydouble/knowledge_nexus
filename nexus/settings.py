@@ -31,6 +31,11 @@ class Settings:
     cloudreve_access_token: str | None = None
     cloudreve_refresh_token: str | None = None
     cloudreve_client_id: str = str(uuid.uuid5(uuid.NAMESPACE_URL, "knowledge-nexus-worker"))
+    cloudreve_oauth_client_id: str | None = None
+    cloudreve_oauth_client_secret: str | None = None
+    cloudreve_oauth_redirect_uri: str = "http://localhost:8000/api/auth/cloudreve/callback"
+    cloudreve_oauth_scope: str = "offline_access"
+    cloudreve_token_store_path: str = "data/runtime/cloudreve_tokens.json"
     database_url: str = "postgresql://admin:admin123@localhost:5433/smart_building"
     redis_url: str = "redis://localhost:6380/0"
     neo4j_uri: str = "bolt://localhost:7687"
@@ -65,6 +70,13 @@ class Settings:
             cloudreve_access_token=cloudreve_access_token,
             cloudreve_refresh_token=cloudreve_refresh_token,
             cloudreve_client_id=env("CLOUDREVE_CLIENT_ID", cls.cloudreve_client_id) or cls.cloudreve_client_id,
+            cloudreve_oauth_client_id=env("CLOUDREVE_OAUTH_CLIENT_ID") or None,
+            cloudreve_oauth_client_secret=env("CLOUDREVE_OAUTH_CLIENT_SECRET") or None,
+            cloudreve_oauth_redirect_uri=env("CLOUDREVE_OAUTH_REDIRECT_URI", cls.cloudreve_oauth_redirect_uri)
+            or cls.cloudreve_oauth_redirect_uri,
+            cloudreve_oauth_scope=env("CLOUDREVE_OAUTH_SCOPE", cls.cloudreve_oauth_scope) or cls.cloudreve_oauth_scope,
+            cloudreve_token_store_path=env("CLOUDREVE_TOKEN_STORE_PATH", cls.cloudreve_token_store_path)
+            or cls.cloudreve_token_store_path,
             database_url=env("DATABASE_URL", cls.database_url) or cls.database_url,
             redis_url=env("REDIS_URL", cls.redis_url) or cls.redis_url,
             neo4j_uri=env("NEO4J_URI", cls.neo4j_uri) or cls.neo4j_uri,

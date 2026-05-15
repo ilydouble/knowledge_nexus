@@ -32,6 +32,7 @@ function App() {
   const [content, setContent] = useState("Infrared sensor thermal calibration notes connect to project delivery risks.");
   const [question, setQuestion] = useState("有哪些已经索引的文档？");
   const [answer, setAnswer] = useState(null);
+  const [authStatus, setAuthStatus] = useState({ authorized: false });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -41,15 +42,21 @@ function App() {
   );
 
   async function refresh() {
-    const [nextDocuments, nextJobs] = await Promise.all([
+    const [nextDocuments, nextJobs, nextAuthStatus] = await Promise.all([
       requestJson("/api/documents"),
       requestJson("/api/ingestion/jobs"),
+      requestJson("/api/auth/cloudreve/status"),
     ]);
     setDocuments(nextDocuments);
     setJobs(nextJobs);
+    setAuthStatus(nextAuthStatus);
     if (!selectedUri && nextDocuments.length) {
       setSelectedUri(nextDocuments[0].uri);
     }
+  }
+
+  function authorizeCloudreve() {
+    window.location.assign(`${API_BASE}/api/auth/cloudreve/start`);
   }
 
   async function loadKnowledge(nextUri) {
@@ -149,6 +156,10 @@ function App() {
           <span>{jobs.filter((job) => job.status === "failed").length}</span>
           <small>失败任务</small>
         </article>
+        <article>
+          <span>{authStatus.authorized ? "已授权" : "未授权"}</span>
+          <small>Cloudreve OAuth</small>
+        </article>
       </section>
 
       <section className="workspace">
@@ -220,6 +231,13 @@ function App() {
         </section>
 
         <aside className="panel actions">
+          <h2>Cloudreve 授权</h2>
+          <div className={`authState ${authStatus.authorized ? "ready" : ""}`}>
+            <strong>{authStatus.authorized ? "授权可用" : "需要授权"}</strong>
+            <small>{authStatus.has_refresh_token ? "已保存 refresh token" : "尚未保存 refresh token"}</small>
+          </div>
+          <button className="secondary" onClick={authorizeCloudreve} disabled={busy}>打开 Cloudreve 授权</button>
+
           <h2>手动处理</h2>
           <label>
             Cloudreve URI

@@ -78,7 +78,7 @@ h3 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -300,6 +300,29 @@ textarea.question {
   display: block;
   margin-top: 5px;
   color: #6b7c8f;
+}
+
+.authState {
+  padding: 12px;
+  border: 1px solid #f1cfb8;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a4b13;
+}
+
+.authState.ready {
+  border-color: #bde6cf;
+  background: #f0fbf5;
+  color: #16704a;
+}
+
+.authState strong,
+.authState small {
+  display: block;
+}
+
+.authState small {
+  margin-top: 4px;
 }
 
 @media (max-width: 1120px) {

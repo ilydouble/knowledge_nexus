@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import requests
 
+from nexus.cloudreve.oauth import CloudreveOAuthTokenStore
 from nexus.settings import Settings
 
 
@@ -26,12 +27,14 @@ class CloudreveClient:
 
     def __post_init__(self) -> None:
         settings = Settings.from_env()
+        token_store = CloudreveOAuthTokenStore(settings.cloudreve_token_store_path)
+        stored_tokens = token_store.load()
         if self.base_url is None:
             self.base_url = settings.cloudreve_base_url
         if self.token is None:
-            self.token = settings.cloudreve_access_token or settings.cloudreve_token
+            self.token = stored_tokens.get("access_token") or settings.cloudreve_access_token or settings.cloudreve_token
         if self.refresh_token is None:
-            self.refresh_token = settings.cloudreve_refresh_token
+            self.refresh_token = stored_tokens.get("refresh_token") or settings.cloudreve_refresh_token
 
     @staticmethod
     def unwrap_response(response: Any) -> Any:
@@ -85,6 +88,7 @@ class CloudreveClient:
         self.token = access_token
         if refresh_token:
             self.refresh_token = refresh_token
+        CloudreveOAuthTokenStore(Settings.from_env().cloudreve_token_store_path).save(data)
         return True
 
     async def list_files(self, uri: str) -> Any:

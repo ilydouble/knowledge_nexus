@@ -2,10 +2,11 @@ from fastapi.testclient import TestClient
 
 from nexus.api import create_app
 from nexus.repositories.memory import InMemoryRepository
+from nexus.settings import Settings
 
 
-def make_client():
-    return TestClient(create_app(repository=InMemoryRepository()))
+def make_client(settings=None):
+    return TestClient(create_app(repository=InMemoryRepository(), settings=settings))
 
 
 def test_health_endpoint_reports_service_status():
@@ -30,6 +31,77 @@ def test_api_allows_local_web_console_cors_preflight():
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cloudreve_oauth_start_redirects_to_authorization_endpoint():
+    settings = Settings(
+        cloudreve_base_url="http://cloudreve.local",
+        cloudreve_oauth_client_id="client-id",
+        cloudreve_oauth_client_secret="client-secret",
+        cloudreve_oauth_redirect_uri="http://localhost:8000/api/auth/cloudreve/callback",
+    )
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/start", follow_redirects=False)
+
+    assert response.status_code == 307
+    location = response.headers["location"]
+    assert location.startswith("http://cloudreve.local/session/authorize?")
+    assert "response_type=code" in location
+    assert "client_id=client-id" in location
+    assert "offline_access" in location
+
+
+def test_cloudreve_oauth_status_reports_token_store_state(tmp_path):
+    settings = Settings(cloudreve_token_store_path=str(tmp_path / "tokens.json"))
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"authorized": False}
+
+
+def test_cloudreve_oauth_callback_exchanges_code_and_saves_tokens(monkeypatch, tmp_path):
+    settings = Settings(
+        cloudreve_base_url="http://cloudreve.local",
+        cloudreve_oauth_client_id="client-id",
+        cloudreve_oauth_client_secret="client-secret",
+        cloudreve_oauth_redirect_uri="http://localhost:8000/api/auth/cloudreve/callback",
+        cloudreve_token_store_path=str(tmp_path / "tokens.json"),
+    )
+    seen = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "expires_in": 3600,
+                "refresh_token_expires_in": 7776000,
+            }
+
+    def fake_post(url, *, data, headers, timeout):
+        seen["url"] = url
+        seen["data"] = data
+        return FakeResponse()
+
+    monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", fake_post)
+    client = make_client(settings=settings)
+
+    response = client.get("/api/auth/cloudreve/callback?code=auth-code")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "authorized"
+    assert seen["url"] == "http://cloudreve.local/api/v4/session/oauth/token"
+    assert seen["data"]["grant_type"] == "authorization_code"
+    assert seen["data"]["code"] == "auth-code"
+    assert client.get("/api/auth/cloudreve/status").json()["authorized"] is True
 
 
 def test_sync_endpoint_creates_job():

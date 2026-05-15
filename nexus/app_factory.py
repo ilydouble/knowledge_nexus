@@ -5,7 +5,14 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
+from nexus.cloudreve.oauth import (
+    CloudreveOAuthError,
+    CloudreveOAuthTokenStore,
+    build_authorization_url,
+    exchange_authorization_code,
+)
 from nexus.models import GraphRagRequest, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
 from nexus.repositories.memory import InMemoryRepository
@@ -78,6 +85,31 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         if not token:
             raise HTTPException(status_code=400, detail="token is required")
         return {"status": "bound"}
+
+    @app.get("/api/auth/cloudreve/start")
+    def start_cloudreve_oauth() -> RedirectResponse:
+        try:
+            return RedirectResponse(build_authorization_url(app_settings))
+        except CloudreveOAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/auth/cloudreve/callback")
+    def cloudreve_oauth_callback(code: str | None = None) -> dict[str, Any]:
+        if not code:
+            raise HTTPException(status_code=400, detail="code is required")
+        try:
+            tokens = exchange_authorization_code(app_settings, code)
+        except CloudreveOAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        CloudreveOAuthTokenStore(app_settings.cloudreve_token_store_path).save(tokens)
+        return {
+            "status": "authorized",
+            "has_refresh_token": bool(tokens.get("refresh_token")),
+        }
+
+    @app.get("/api/auth/cloudreve/status")
+    def cloudreve_oauth_status() -> dict[str, Any]:
+        return CloudreveOAuthTokenStore(app_settings.cloudreve_token_store_path).status()
 
     @app.post("/api/ingestion/sync")
     def sync(request: SyncRequest, process: bool = False, repository: NexusRepository = Depends(get_repository)):

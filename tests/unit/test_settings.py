@@ -86,3 +86,18 @@ def test_settings_loads_cloudreve_refresh_token(monkeypatch):
     assert settings.cloudreve_access_token == "access-token"
     assert settings.cloudreve_refresh_token == "refresh-token"
     assert settings.cloudreve_token == "access-token"
+
+
+def test_settings_loads_cloudreve_oauth_settings(monkeypatch):
+    monkeypatch.setenv("CLOUDREVE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setenv("CLOUDREVE_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("CLOUDREVE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/auth/cloudreve/callback")
+    monkeypatch.setenv("CLOUDREVE_TOKEN_STORE_PATH", "data/runtime/tokens.json")
+
+    settings = Settings.from_env()
+
+    assert settings.cloudreve_oauth_client_id == "client-id"
+    assert settings.cloudreve_oauth_client_secret == "client-secret"
+    assert settings.cloudreve_oauth_redirect_uri == "http://localhost:8000/api/auth/cloudreve/callback"
+    assert settings.cloudreve_oauth_scope == "offline_access"
+    assert settings.cloudreve_token_store_path == "data/runtime/tokens.json"
