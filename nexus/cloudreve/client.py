@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -24,6 +25,9 @@ class CloudreveClient:
     token: str | None = None
     refresh_token: str | None = None
     timeout: float = 20.0
+    # Proactive refresh: if token expires within this many seconds, refresh before the request
+    _token_expiry: datetime | None = field(default=None, repr=False, compare=False)
+    _refresh_margin_seconds: int = field(default=120, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         settings = Settings.from_env()
@@ -35,6 +39,14 @@ class CloudreveClient:
             self.token = stored_tokens.get("access_token") or settings.cloudreve_access_token or settings.cloudreve_token
         if self.refresh_token is None:
             self.refresh_token = stored_tokens.get("refresh_token") or settings.cloudreve_refresh_token
+        # Parse stored expiry for proactive refresh
+        if self._token_expiry is None:
+            expiry_str = stored_tokens.get("access_expires")
+            if expiry_str:
+                try:
+                    self._token_expiry = datetime.fromisoformat(expiry_str).astimezone(UTC)
+                except ValueError:
+                    pass
 
     @staticmethod
     def unwrap_response(response: Any) -> Any:
@@ -63,13 +75,32 @@ class CloudreveClient:
 
     @staticmethod
     def _is_auth_status(status_code: int) -> bool:
-        return status_code in {401, 40023}
+        return status_code in {401, 403}
 
     @staticmethod
     def _is_auth_code(code: int | None) -> bool:
-        return code in {401, 40023}
+        # Cloudreve Pro v4 auth-related body codes:
+        #   401    – generic login required
+        #   40023  – token expired / invalid
+        #   40081  – "failed to get target file: Login required" (download endpoint)
+        return code in {401, 40023, 40081}
+
+    def _token_needs_refresh(self) -> bool:
+        """Return True if the access token is absent or expires within the refresh margin."""
+        if not self.token:
+            return True
+        if self._token_expiry is None:
+            return False  # No expiry info – assume valid
+        return datetime.now(UTC) >= self._token_expiry - timedelta(seconds=self._refresh_margin_seconds)
 
     def refresh_access_token_sync(self) -> bool:
+        """Refresh the access token using the stored refresh token.
+
+        Returns True on success, False if the refresh token is missing or the
+        server rejects it (e.g. code 40020 = token revoked).  In the latter
+        case the caller should surface an error asking the user to re-authorize
+        via /api/auth/cloudreve/start.
+        """
         if not self.refresh_token:
             return False
         settings = Settings.from_env()
@@ -78,14 +109,30 @@ class CloudreveClient:
         except CloudreveOAuthError:
             return False
         access_token = data.get("access_token") if isinstance(data, dict) else None
-        refresh_token = data.get("refresh_token") if isinstance(data, dict) else None
         if not access_token:
             return False
         self.token = access_token
+        refresh_token = data.get("refresh_token") if isinstance(data, dict) else None
         if refresh_token:
             self.refresh_token = refresh_token
+        # Update in-memory expiry from fresh response
+        expiry_str = data.get("access_expires")
+        if expiry_str:
+            try:
+                self._token_expiry = datetime.fromisoformat(expiry_str).astimezone(UTC)
+            except ValueError:
+                pass
         CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).save(data)
         return True
+
+    def ensure_fresh_token(self) -> None:
+        """Proactively refresh the token if it is close to expiry.
+
+        Called at the start of every API helper so we don't need to rely
+        solely on reactive 401 handling mid-request.
+        """
+        if self._token_needs_refresh():
+            self.refresh_access_token_sync()
 
     def _list_files_sync(self, uri: str) -> Any:
         """Synchronous helper – uses *requests* which works reliably with Cloudreve Pro v4.
@@ -94,6 +141,7 @@ class CloudreveClient:
         Response shape: {"code": 0, "data": {"files": [...], "parent": {...}, ...}}
         Each file object has a ``path`` field with the full cloudreve:// URI.
         """
+        self.ensure_fresh_token()
         url = f"{self.base_url}/api/v4/file"
         response = requests.get(url, params={"uri": uri}, headers=self._headers(), timeout=self.timeout)
         if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
@@ -117,6 +165,7 @@ class CloudreveClient:
 
         Cloudreve Pro v4 endpoint: GET /api/v4/file/info  (NOT /api/v4/file/metadata)
         """
+        self.ensure_fresh_token()
         url = f"{self.base_url}/api/v4/file/info"
         response = requests.get(url, params={"uri": uri}, headers=self._headers(), timeout=self.timeout)
         if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
@@ -157,6 +206,7 @@ class CloudreveClient:
              → {"code": 0, "data": {"urls": [{"url": "<signed-url>"}]}}
           2. GET <signed-url>  → raw file bytes
         """
+        self.ensure_fresh_token()
         url = f"{self.base_url}/api/v4/file/url"
         resp = requests.post(url, json={"uris": [uri]}, headers=self._headers(), timeout=self.timeout)
         if self._is_auth_status(resp.status_code) and self.refresh_access_token_sync():
@@ -188,6 +238,7 @@ class CloudreveClient:
         return resp.content
 
     def _iter_file_events_sync(self, uri: str = "cloudreve://my", client_id: str | None = None) -> Iterator[dict[str, Any]]:
+        self.ensure_fresh_token()
         headers = self._headers()
         headers["Accept"] = "text/event-stream"
         if client_id:
