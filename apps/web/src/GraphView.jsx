@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 const NODE_R = 18;          // file-node radius
 const ENTITY_R = 12;        // entity-node radius
-const REPULSION = 4000;
-const ATTRACTION = 0.06;
-const DAMPING = 0.82;
-const CENTER_PULL = 0.015;
+// Repulsion and center-pull are computed per-frame from canvas size (see useSim).
+const ATTRACTION = 0.04;
+const DAMPING = 0.78;
+const CENTER_PULL = 0.012;
 
 function isFileNode(node) {
   return node.uri && (node.uri.startsWith("cloudreve://") || node.uri.startsWith("file:"));
@@ -40,12 +40,14 @@ function useSim(rawNodes, rawEdges, width, height) {
     const ids = rawNodes.map((n) => n.id);
     const pos = {};
     const vel = {};
-    ids.forEach((id, i) => {
-      const angle = (2 * Math.PI * i) / ids.length;
-      const r = Math.min(width, height) * 0.3;
+    // Seed a simple deterministic PRNG so positions are stable across re-renders
+    // but still spread across the full canvas from the start.
+    let seed = 42;
+    const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return (seed - 1) / 2147483646; };
+    ids.forEach((id) => {
       pos[id] = posRef.current[id] || {
-        x: width / 2 + r * Math.cos(angle),
-        y: height / 2 + r * Math.sin(angle),
+        x: width  * (0.1 + 0.8 * rand()),
+        y: height * (0.1 + 0.8 * rand()),
       };
       vel[id] = { x: 0, y: 0 };
     });
@@ -53,6 +55,10 @@ function useSim(rawNodes, rawEdges, width, height) {
     velRef.current = vel;
 
     let alpha = 1.0;
+    // Scale repulsion with canvas area so the graph fills the space regardless
+    // of window size.  At 800×520 this ≈ 4160 (same ballpark as before);
+    // at 1400×700 it grows to ~9800 — nodes spread proportionally further.
+    const repulsion = width * height * 0.01;
 
     function tick() {
       const p = posRef.current;
@@ -65,7 +71,7 @@ function useSim(rawNodes, rawEdges, width, height) {
           const a = nodeList[i].id, b = nodeList[j].id;
           const dx = p[b].x - p[a].x, dy = p[b].y - p[a].y;
           const dist2 = dx * dx + dy * dy + 1;
-          const force = (REPULSION * alpha) / dist2;
+          const force = (repulsion * alpha) / dist2;
           const dist = Math.sqrt(dist2);
           v[a].x -= (force * dx) / dist;
           v[a].y -= (force * dy) / dist;
