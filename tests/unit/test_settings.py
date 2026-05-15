@@ -12,9 +12,11 @@ def test_settings_loads_database_url_from_environment(monkeypatch):
     assert settings.database_url == "postgresql://admin:admin123@localhost:5433/smart_building"
 
 
-def test_settings_missing_optional_ai_key_does_not_crash(monkeypatch):
+def test_settings_missing_optional_ai_key_does_not_crash(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+    monkeypatch.delenv("BIGMODEL_API_KEY", raising=False)
 
     settings = Settings.from_env()
 
@@ -73,3 +75,14 @@ def test_settings_loads_values_from_dotenv_file(monkeypatch, tmp_path):
     assert settings.cloudreve_base_url == "http://localhost:5212"
     assert settings.cloudreve_token == "test-token"
     assert settings.cloudreve_client_id == "test-client"
+
+
+def test_settings_loads_cloudreve_refresh_token(monkeypatch):
+    monkeypatch.setenv("CLOUDREVE_ACCESS_TOKEN", "access-token")
+    monkeypatch.setenv("CLOUDREVE_REFRESH_TOKEN", "refresh-token")
+
+    settings = Settings.from_env()
+
+    assert settings.cloudreve_access_token == "access-token"
+    assert settings.cloudreve_refresh_token == "refresh-token"
+    assert settings.cloudreve_token == "access-token"

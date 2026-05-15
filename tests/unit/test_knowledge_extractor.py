@@ -57,7 +57,11 @@ def test_knowledge_extractor_calls_glm47_chat_completion_and_normalizes_json():
     assert request["json"]["response_format"] == {"type": "json_object"}
 
 
-def test_knowledge_extractor_uses_mock_result_without_api_key():
+def test_knowledge_extractor_uses_mock_result_without_api_key(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+    monkeypatch.delenv("BIGMODEL_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     extractor = KnowledgeExtractor(api_key=None)
 
     result = extractor.extract("Infrared sensor thermal calibration.", doc_type="general")

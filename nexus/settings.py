@@ -28,6 +28,8 @@ def _read_dotenv(path: str = ".env") -> dict[str, str]:
 class Settings:
     cloudreve_base_url: str = "http://cloudreve:5212"
     cloudreve_token: str | None = None
+    cloudreve_access_token: str | None = None
+    cloudreve_refresh_token: str | None = None
     cloudreve_client_id: str = str(uuid.uuid5(uuid.NAMESPACE_URL, "knowledge-nexus-worker"))
     database_url: str = "postgresql://admin:admin123@localhost:5433/smart_building"
     redis_url: str = "redis://localhost:6380/0"
@@ -54,9 +56,14 @@ class Settings:
         def env(name: str, default: str | None = None) -> str | None:
             return os.getenv(name, dotenv.get(name, default))
 
+        cloudreve_access_token = env("CLOUDREVE_ACCESS_TOKEN") or env("CLOUDREVE_TOKEN") or None
+        cloudreve_refresh_token = env("CLOUDREVE_REFRESH_TOKEN") or None
+
         return cls(
             cloudreve_base_url=env("CLOUDREVE_BASE_URL", cls.cloudreve_base_url) or cls.cloudreve_base_url,
-            cloudreve_token=env("CLOUDREVE_TOKEN") or None,
+            cloudreve_token=cloudreve_access_token,
+            cloudreve_access_token=cloudreve_access_token,
+            cloudreve_refresh_token=cloudreve_refresh_token,
             cloudreve_client_id=env("CLOUDREVE_CLIENT_ID", cls.cloudreve_client_id) or cls.cloudreve_client_id,
             database_url=env("DATABASE_URL", cls.database_url) or cls.database_url,
             redis_url=env("REDIS_URL", cls.redis_url) or cls.redis_url,

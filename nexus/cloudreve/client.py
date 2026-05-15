@@ -21,11 +21,17 @@ class CloudreveError(RuntimeError):
 class CloudreveClient:
     base_url: str | None = None
     token: str | None = None
+    refresh_token: str | None = None
     timeout: float = 20.0
 
     def __post_init__(self) -> None:
+        settings = Settings.from_env()
         if self.base_url is None:
-            self.base_url = Settings.from_env().cloudreve_base_url
+            self.base_url = settings.cloudreve_base_url
+        if self.token is None:
+            self.token = settings.cloudreve_access_token or settings.cloudreve_token
+        if self.refresh_token is None:
+            self.refresh_token = settings.cloudreve_refresh_token
 
     @staticmethod
     def unwrap_response(response: Any) -> Any:
@@ -52,14 +58,50 @@ class CloudreveClient:
             )
         raise CloudreveError(code=status_code, message=message)
 
+    @staticmethod
+    def _is_auth_status(status_code: int) -> bool:
+        return status_code in {401, 40023}
+
+    @staticmethod
+    def _is_auth_code(code: int | None) -> bool:
+        return code in {401, 40023}
+
+    def refresh_access_token_sync(self) -> bool:
+        if not self.refresh_token:
+            return False
+        response = requests.post(
+            f"{self.base_url}/api/v4/session/token/refresh",
+            json={"refresh_token": self.refresh_token},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=self.timeout,
+        )
+        if response.status_code != 200:
+            return False
+        data = self.unwrap_response(response)
+        access_token = data.get("access_token") if isinstance(data, dict) else None
+        refresh_token = data.get("refresh_token") if isinstance(data, dict) else None
+        if not access_token:
+            return False
+        self.token = access_token
+        if refresh_token:
+            self.refresh_token = refresh_token
+        return True
+
     async def list_files(self, uri: str) -> Any:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, headers=self._headers()) as client:
             response = await client.get("/api/v4/file/list", params={"uri": uri})
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            if self._is_auth_status(exc.response.status_code) and self.refresh_access_token_sync():
+                return await self.list_files(uri)
             self._raise_http_error(exc.response.status_code, endpoint="/api/v4/file/list")
-        return self.unwrap_response(response)
+        try:
+            return self.unwrap_response(response)
+        except CloudreveError as exc:
+            if self._is_auth_code(exc.code) and self.refresh_access_token_sync():
+                return await self.list_files(uri)
+            raise
 
     async def get_metadata(self, uri: str) -> Any:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout, headers=self._headers()) as client:
@@ -67,8 +109,15 @@ class CloudreveClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            if self._is_auth_status(exc.response.status_code) and self.refresh_access_token_sync():
+                return await self.get_metadata(uri)
             self._raise_http_error(exc.response.status_code, endpoint="/api/v4/file/metadata")
-        return self.unwrap_response(response)
+        try:
+            return self.unwrap_response(response)
+        except CloudreveError as exc:
+            if self._is_auth_code(exc.code) and self.refresh_access_token_sync():
+                return await self.get_metadata(uri)
+            raise
 
     async def can_access(self, uri: str) -> bool:
         try:
@@ -86,6 +135,8 @@ class CloudreveClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            if self._is_auth_status(exc.response.status_code) and self.refresh_access_token_sync():
+                return await self.get_file_content(uri)
             self._raise_http_error(exc.response.status_code, endpoint="/api/v4/file/content")
         return response.content
 
@@ -97,6 +148,13 @@ class CloudreveClient:
             headers=self._headers(),
             timeout=60.0,
         )
+        if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
+            response = requests.get(
+                f"{self.base_url}/api/v4/file/content",
+                params={"uri": uri},
+                headers=self._headers(),
+                timeout=60.0,
+            )
         if response.status_code != 200:
             self._raise_http_error(response.status_code, endpoint="/api/v4/file/content")
         return response.content
@@ -108,6 +166,12 @@ class CloudreveClient:
             headers["X-Cr-Client-Id"] = client_id
         url = f"{self.base_url}/api/v4/file/events"
         response = requests.get(url, params={"uri": uri}, headers=headers, stream=True, timeout=None)
+        if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
+            headers = self._headers()
+            headers["Accept"] = "text/event-stream"
+            if client_id:
+                headers["X-Cr-Client-Id"] = client_id
+            response = requests.get(url, params={"uri": uri}, headers=headers, stream=True, timeout=None)
         if response.status_code != 200:
             self._raise_http_error(response.status_code, endpoint="/api/v4/file/events")
         for line in response.iter_lines(decode_unicode=True):
@@ -130,6 +194,12 @@ class CloudreveClient:
             url = f"{self.base_url}/api/v4/file/events"
             try:
                 response = requests.get(url, params={"uri": uri}, headers=headers, stream=True, timeout=None)
+                if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
+                    headers = self._headers()
+                    headers["Accept"] = "text/event-stream"
+                    if client_id:
+                        headers["X-Cr-Client-Id"] = client_id
+                    response = requests.get(url, params={"uri": uri}, headers=headers, stream=True, timeout=None)
                 if response.status_code != 200:
                     try:
                         self._raise_http_error(response.status_code, endpoint="/api/v4/file/events")
