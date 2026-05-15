@@ -149,24 +149,43 @@ class CloudreveClient:
         import asyncio
         return await asyncio.to_thread(self.get_file_content_sync, uri)
 
+    def _get_download_url_sync(self, uri: str) -> str:
+        """Get a signed download URL for *uri* via POST /api/v4/file/url.
+
+        Cloudreve Pro v4 download flow:
+          1. POST /api/v4/file/url  body: {"uris": [uri]}
+             → {"code": 0, "data": {"urls": [{"url": "<signed-url>"}]}}
+          2. GET <signed-url>  → raw file bytes
+        """
+        url = f"{self.base_url}/api/v4/file/url"
+        resp = requests.post(url, json={"uris": [uri]}, headers=self._headers(), timeout=self.timeout)
+        if self._is_auth_status(resp.status_code) and self.refresh_access_token_sync():
+            resp = requests.post(url, json={"uris": [uri]}, headers=self._headers(), timeout=self.timeout)
+        if resp.status_code != 200:
+            self._raise_http_error(resp.status_code, endpoint="/api/v4/file/url")
+        payload = resp.json()
+        code = payload.get("code")
+        if code != 0:
+            if self._is_auth_code(code) and self.refresh_access_token_sync():
+                return self._get_download_url_sync(uri)
+            raise CloudreveError(code=code, message=payload.get("msg") or "Unknown Cloudreve error")
+        urls = (payload.get("data") or {}).get("urls") or []
+        if not urls or not urls[0].get("url"):
+            raise CloudreveError(code=-1, message="No download URL returned by Cloudreve")
+        return urls[0]["url"]
+
     def get_file_content_sync(self, uri: str) -> bytes:
-        """Download file content from Cloudreve (synchronous)."""
-        response = requests.get(
-            f"{self.base_url}/api/v4/file/content",
-            params={"uri": uri},
-            headers=self._headers(),
-            timeout=60.0,
-        )
-        if self._is_auth_status(response.status_code) and self.refresh_access_token_sync():
-            response = requests.get(
-                f"{self.base_url}/api/v4/file/content",
-                params={"uri": uri},
-                headers=self._headers(),
-                timeout=60.0,
-            )
-        if response.status_code != 200:
-            self._raise_http_error(response.status_code, endpoint="/api/v4/file/content")
-        return response.content
+        """Download file content from Cloudreve (synchronous).
+
+        Uses the two-step Cloudreve Pro v4 download flow:
+        1. Obtain a signed download URL via _get_download_url_sync()
+        2. Fetch the raw bytes from that URL (no auth header needed, URL is pre-signed)
+        """
+        download_url = self._get_download_url_sync(uri)
+        resp = requests.get(download_url, timeout=60.0)
+        if resp.status_code != 200:
+            self._raise_http_error(resp.status_code, endpoint="/api/v4/file/content (signed)")
+        return resp.content
 
     def _iter_file_events_sync(self, uri: str = "cloudreve://my", client_id: str | None = None) -> Iterator[dict[str, Any]]:
         headers = self._headers()

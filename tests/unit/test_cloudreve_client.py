@@ -83,52 +83,70 @@ def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
 
 
 def test_get_file_content_sync_refreshes_expired_access_token_and_retries(monkeypatch):
-    seen = {"get_headers": [], "post_payloads": []}
+    """Verify the two-step Cloudreve Pro v4 download flow with token refresh.
 
-    class FakeContentResponse:
-        def __init__(self, status_code, content=b""):
-            self.status_code = status_code
-            self.content = content
+    Flow:
+      1. POST /api/v4/file/url  → 401 (expired)
+      2. POST /api/v4/session/token/refresh → new tokens
+      3. POST /api/v4/file/url  → 200, signed URL
+      4. GET <signed-url>       → raw bytes
+    """
+    seen = {"post_calls": [], "get_calls": []}
+
+    SIGNED_URL = "http://localhost:5212/api/v4/file/content/abc/0/demo.md?sign=xyz"
+
+    class FakeUrlResponse401:
+        status_code = 401
+        def json(self): return {"code": 401, "msg": "Login required"}
+
+    class FakeUrlResponseOK:
+        status_code = 200
+        def json(self): return {"code": 0, "data": {"urls": [{"url": SIGNED_URL}]}, "msg": ""}
 
     class FakeRefreshResponse:
         status_code = 200
-
         def json(self):
             return {
                 "code": 0,
                 "data": {
                     "access_token": "new-access",
                     "refresh_token": "new-refresh",
-                    "access_expires": "2026-05-15T12:00:00+08:00",
-                    "refresh_expires": "2026-06-15T12:00:00+08:00",
                 },
                 "msg": "",
             }
 
-    responses = [
-        FakeContentResponse(401),
-        FakeContentResponse(200, b"downloaded"),
-    ]
+    class FakeDownloadResponse:
+        status_code = 200
+        content = b"pdf-bytes"
 
-    def fake_get(url, *, params, headers, timeout, **kwargs):
-        seen["get_headers"].append(headers)
-        return responses.pop(0)
+    url_responses = [FakeUrlResponse401(), FakeUrlResponseOK()]
 
-    def fake_post(url, *, json, headers, timeout):
-        seen["post_payloads"].append(json)
-        return FakeRefreshResponse()
+    def fake_post(url, *, json=None, data=None, headers, timeout, **kwargs):
+        seen["post_calls"].append({"url": url, "json": json})
+        if "token/refresh" in url:
+            return FakeRefreshResponse()
+        return url_responses.pop(0)
 
-    monkeypatch.setattr("nexus.cloudreve.client.requests.get", fake_get)
+    def fake_get(url, *, timeout, **kwargs):
+        seen["get_calls"].append(url)
+        return FakeDownloadResponse()
+
     monkeypatch.setattr("nexus.cloudreve.client.requests.post", fake_post)
+    monkeypatch.setattr("nexus.cloudreve.client.requests.get", fake_get)
 
     client = CloudreveClient(base_url="http://localhost:5212", token="old-access", refresh_token="old-refresh")
-
     content = client.get_file_content_sync("cloudreve://my/demo.md")
 
-    assert content == b"downloaded"
-    assert seen["post_payloads"] == [{"refresh_token": "old-refresh"}]
-    assert seen["get_headers"][0]["Authorization"] == "Bearer old-access"
-    assert seen["get_headers"][1]["Authorization"] == "Bearer new-access"
+    assert content == b"pdf-bytes"
+    # Signed URL was fetched
+    assert seen["get_calls"] == [SIGNED_URL]
+    # POST /api/v4/file/url was called twice (before and after refresh)
+    url_posts = [c for c in seen["post_calls"] if "file/url" in c["url"]]
+    assert len(url_posts) == 2
+    assert url_posts[0]["json"] == {"uris": ["cloudreve://my/demo.md"]}
+    # Token refresh was triggered once
+    refresh_posts = [c for c in seen["post_calls"] if "token/refresh" in c["url"]]
+    assert len(refresh_posts) == 1
     assert client.token == "new-access"
     assert client.refresh_token == "new-refresh"
 
