@@ -17,7 +17,8 @@ from nexus.cloudreve.oauth import (
     refresh_oauth_tokens,
     resolve_oauth_settings,
 )
-from nexus.models import GraphRagRequest, LinkCreate, SemanticSearchRequest, SyncRequest
+from nexus.graph.neo4j_store import Neo4jGraphStore
+from nexus.models import GraphRagRequest, KnowledgeLayer, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
 from nexus.repositories.memory import InMemoryRepository
 from nexus.repositories.postgres import PostgresRepository
@@ -77,6 +78,19 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     app.state.settings = app_settings
     app.state.repository = repo
     app.state.scanner = CloudreveScanner(CloudreveClient(), repo)
+
+    # Neo4j graph store — used by the /api/graph endpoint.
+    # Falls back gracefully if Neo4j is not configured.
+    _neo4j_store: Neo4jGraphStore | None = None
+    if app_settings.neo4j_uri and app_settings.neo4j_user and app_settings.neo4j_password:
+        try:
+            _neo4j_store = Neo4jGraphStore(
+                uri=app_settings.neo4j_uri,
+                user=app_settings.neo4j_user,
+                password=app_settings.neo4j_password,
+            )
+        except Exception:
+            pass
 
     def get_repository() -> NexusRepository:
         return repo
@@ -269,6 +283,22 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     def graph_neighborhood(repository: NexusRepository = Depends(get_repository)):
         nodes, edges = repository.graph()
         return permission_filter.filter_graph(nodes, edges)
+
+    @app.get("/api/graph")
+    def get_graph(uri: str | None = None):
+        """Return the Neo4j knowledge graph.
+
+        - Without ``uri``: return the full graph (all nodes and edges).
+        - With ``uri``: return the 1-hop neighborhood of the given document.
+        """
+        if _neo4j_store is None:
+            return {"nodes": [], "edges": [], "hidden_node_count": 0, "error": "Neo4j not configured"}
+        all_layers = [KnowledgeLayer.L1, KnowledgeLayer.L2, KnowledgeLayer.L3]
+        if uri:
+            result = _neo4j_store.neighborhood(uri, layers=all_layers)
+        else:
+            result = _neo4j_store.full_graph()
+        return result
 
     @app.post("/api/search/semantic")
     def semantic_search(request: SemanticSearchRequest, repository: NexusRepository = Depends(get_repository)):

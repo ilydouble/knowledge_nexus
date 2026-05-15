@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import GraphView from "./GraphView.jsx";
 
 const API_BASE = import.meta.env.VITE_NEXUS_API_BASE || "http://localhost:8000";
 
@@ -47,6 +48,7 @@ function cloudreveAuthHint(authStatus) {
 }
 
 function App() {
+  const [tab, setTab] = useState("workbench"); // "workbench" | "graph"
   const [files, setFiles] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -65,6 +67,13 @@ function App() {
   const [editingOAuthConfig, setEditingOAuthConfig] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+
+  // Graph tab state
+  const [graphMode, setGraphMode] = useState("full"); // "full" | "doc"
+  const [graphDocUri, setGraphDocUri] = useState("");
+  const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphSelectedNode, setGraphSelectedNode] = useState(null);
 
   const selectedDocument = useMemo(
     () => documents.find((document) => document.uri === selectedUri),
@@ -147,6 +156,23 @@ function App() {
     setKnowledge(result);
   }
 
+  async function loadGraph(mode, docUri) {
+    setGraphLoading(true);
+    setGraphSelectedNode(null);
+    try {
+      const url = mode === "doc" && docUri
+        ? `/api/graph?uri=${encodeURIComponent(docUri)}`
+        : "/api/graph";
+      const result = await requestJson(url);
+      setGraphData({ nodes: result.nodes || [], edges: result.edges || [] });
+    } catch (err) {
+      setMessage(err.message);
+      setGraphData({ nodes: [], edges: [] });
+    } finally {
+      setGraphLoading(false);
+    }
+  }
+
   useEffect(() => {
     refresh().catch((error) => setMessage(error.message));
     const timer = setInterval(() => {
@@ -158,6 +184,12 @@ function App() {
   useEffect(() => {
     loadKnowledge(selectedUri).catch((error) => setMessage(error.message));
   }, [selectedUri]);
+
+  useEffect(() => {
+    if (tab === "graph") {
+      loadGraph(graphMode, graphDocUri);
+    }
+  }, [tab, graphMode, graphDocUri]);
 
   async function demoIndex() {
     setBusy(true);
@@ -265,6 +297,10 @@ function App() {
           <p className="eyebrow">Knowledge Nexus Console</p>
           <h1>语义处理工作台</h1>
         </div>
+        <div className="tabBar">
+          <button className={`tabBtn ${tab === "workbench" ? "active" : ""}`} onClick={() => setTab("workbench")}>处理工作台</button>
+          <button className={`tabBtn ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>知识图谱</button>
+        </div>
         <button className="compact" onClick={refresh} disabled={busy}>刷新</button>
       </header>
 
@@ -295,7 +331,79 @@ function App() {
         </article>
       </section>
 
-      <section className="workspace">
+      {tab === "graph" && (
+        <section className="graphTab">
+          <div className="graphControls">
+            <div className="graphModeToggle">
+              <button className={`tabBtn ${graphMode === "full" ? "active" : ""}`} onClick={() => setGraphMode("full")}>全部图谱</button>
+              <button className={`tabBtn ${graphMode === "doc" ? "active" : ""}`} onClick={() => setGraphMode("doc")}>文档图谱</button>
+            </div>
+            {graphMode === "doc" && (
+              <select value={graphDocUri} onChange={(e) => setGraphDocUri(e.target.value)} className="graphDocSelect">
+                <option value="">— 请选择文档 —</option>
+                {files.filter((f) => f.status === "processed" || f.status === "succeeded").map((f) => (
+                  <option key={f.uri} value={f.uri}>{f.filename}</option>
+                ))}
+              </select>
+            )}
+            <button className="compact" onClick={() => loadGraph(graphMode, graphDocUri)} disabled={graphLoading}>
+              {graphLoading ? "加载中…" : "刷新图谱"}
+            </button>
+            <span className="graphStats">
+              {graphData.nodes.length} 节点 · {graphData.edges.length} 关系
+            </span>
+          </div>
+
+          <div className="graphMain">
+            <GraphView
+              nodes={graphData.nodes}
+              edges={graphData.edges}
+              onNodeClick={(node) => setGraphSelectedNode(node)}
+            />
+
+            {graphSelectedNode && (
+              <aside className="graphSidebar">
+                <div className="graphSidebarHeader">
+                  <h3>{graphSelectedNode.label || graphSelectedNode.id}</h3>
+                  <button className="miniButton" onClick={() => setGraphSelectedNode(null)}>✕</button>
+                </div>
+                {graphSelectedNode.properties?.type && (
+                  <p className="graphNodeType">{graphSelectedNode.properties.type}</p>
+                )}
+                {graphSelectedNode.summary && (
+                  <p className="summary">{graphSelectedNode.summary}</p>
+                )}
+                {graphSelectedNode.uri && (
+                  <p className="uri">{graphSelectedNode.uri}</p>
+                )}
+                {graphSelectedNode.properties?.type === undefined && graphSelectedNode.uri?.startsWith("cloudreve://") && (
+                  <button className="secondary" onClick={() => {
+                    setTab("workbench");
+                    setSelectedUri(graphSelectedNode.uri);
+                    setUri(graphSelectedNode.uri);
+                  }}>在工作台查看</button>
+                )}
+                <h4>相关关系</h4>
+                <div className="graphRelList">
+                  {graphData.edges.filter((e) => e.source === graphSelectedNode.id || e.target === graphSelectedNode.id).map((e) => {
+                    const otherId = e.source === graphSelectedNode.id ? e.target : e.source;
+                    const other = graphData.nodes.find((n) => n.id === otherId);
+                    const dir = e.source === graphSelectedNode.id ? "→" : "←";
+                    return (
+                      <div key={e.id} className="graphRelRow">
+                        <span className="relType">{e.relation}</span>
+                        <span>{dir} {other?.label || otherId}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </aside>
+            )}
+          </div>
+        </section>
+      )}
+
+      {tab === "workbench" && <section className="workspace">
         <section className="panel fileCenter">
           <div className="panelHeader">
             <h2>文件处理中心</h2>
@@ -470,7 +578,7 @@ function App() {
           <button onClick={askGraph} disabled={busy}>询问</button>
           <p className="answer">{answer?.answer || "GraphRAG 会基于当前可见图谱回答。"}</p>
         </aside>
-      </section>
+      </section>}
     </main>
   );
 }
