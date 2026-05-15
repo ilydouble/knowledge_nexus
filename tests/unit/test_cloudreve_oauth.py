@@ -1,4 +1,4 @@
-from nexus.cloudreve.oauth import CloudreveOAuthConfigStore, CloudreveOAuthTokenStore, resolve_oauth_settings
+from nexus.cloudreve.oauth import CloudreveOAuthConfigStore, CloudreveOAuthTokenStore, exchange_authorization_code, resolve_oauth_settings
 from nexus.settings import Settings
 
 
@@ -42,7 +42,7 @@ def test_oauth_config_store_saves_non_token_oauth_settings(tmp_path):
     )
 
     assert store.load()["client_id"] == "client-id"
-    assert store.load()["scope"] == "openid offline_access"
+    assert store.load()["scope"] == "openid profile offline_access Files.Read"
     assert store.status()["configured"] is True
     assert store.status()["client_secret_set"] is True
 
@@ -69,4 +69,24 @@ def test_resolve_oauth_settings_prefers_runtime_config(tmp_path):
     assert resolved.cloudreve_base_url == "http://cloudreve.local"
     assert resolved.cloudreve_oauth_client_id == "runtime-client"
     assert resolved.cloudreve_oauth_client_secret == "runtime-secret"
-    assert resolved.cloudreve_oauth_scope == "openid offline_access"
+    assert resolved.cloudreve_oauth_scope == "openid profile offline_access Files.Read"
+
+
+def test_exchange_authorization_code_includes_cloudreve_error_text(monkeypatch):
+    class FakeResponse:
+        status_code = 400
+        text = '{"error":"invalid_grant","error_description":"code expired"}'
+
+        def json(self):
+            return {"error": "invalid_grant", "error_description": "code expired"}
+
+    monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", lambda *args, **kwargs: FakeResponse())
+    settings = Settings(cloudreve_oauth_client_id="client-id", cloudreve_oauth_client_secret="client-secret")
+
+    try:
+        exchange_authorization_code(settings, "bad-code")
+    except Exception as exc:
+        assert "invalid_grant" in str(exc)
+        assert "code expired" in str(exc)
+    else:
+        raise AssertionError("expected token exchange to fail")

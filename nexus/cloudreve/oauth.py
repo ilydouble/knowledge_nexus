@@ -81,9 +81,24 @@ class CloudreveOAuthConfigStore:
 
 def normalize_oauth_scope(scope: str) -> str:
     seen = set(scope.split())
-    scopes = ["openid", "offline_access"]
-    scopes.extend(scope for scope in seen if scope not in {"openid", "offline_access"})
+    required_scopes = {"openid", "profile", "offline_access", "Files.Read"}
+    scopes = ["openid", "profile", "offline_access", "Files.Read"]
+    scopes.extend(scope for scope in seen if scope not in required_scopes)
     return " ".join(scopes)
+
+
+def _error_message_from_payload(payload: dict[str, Any], response: Any) -> str:
+    parts = [
+        str(payload[key])
+        for key in ("msg", "error", "error_description", "detail")
+        if payload.get(key)
+    ]
+    if parts:
+        return ": ".join(parts)
+    text = getattr(response, "text", "") or ""
+    if text:
+        return text[:500]
+    return f"Cloudreve OAuth token request failed with HTTP {response.status_code}"
 
 
 def resolve_oauth_settings(settings: Settings) -> Settings:
@@ -145,8 +160,7 @@ def exchange_authorization_code(settings: Settings, code: str) -> dict[str, Any]
     except ValueError:
         payload = {}
     if response.status_code >= 400:
-        message = payload.get("msg") if isinstance(payload, dict) else None
-        raise CloudreveOAuthError(message or f"Cloudreve OAuth token request failed with HTTP {response.status_code}")
+        raise CloudreveOAuthError(_error_message_from_payload(payload if isinstance(payload, dict) else {}, response))
     return unwrap_token_response(payload)
 
 

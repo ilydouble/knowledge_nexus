@@ -34,7 +34,7 @@ class Settings:
     cloudreve_oauth_client_id: str | None = None
     cloudreve_oauth_client_secret: str | None = None
     cloudreve_oauth_redirect_uri: str = "http://localhost:8000/api/auth/cloudreve/callback"
-    cloudreve_oauth_scope: str = "openid offline_access"
+    cloudreve_oauth_scope: str = "openid profile offline_access Files.Read"
     cloudreve_token_store_path: str = "data/runtime/cloudreve_tokens.json"
     cloudreve_oauth_config_path: str = "data/runtime/cloudreve_oauth_config.json"
     database_url: str = "postgresql://admin:admin123@localhost:5433/smart_building"

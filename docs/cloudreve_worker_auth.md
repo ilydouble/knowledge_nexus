@@ -8,7 +8,7 @@ Preferred configuration for production-like local development is OAuth app autho
 CLOUDREVE_OAUTH_CLIENT_ID=<client-id>
 CLOUDREVE_OAUTH_CLIENT_SECRET=<client-secret>
 CLOUDREVE_OAUTH_REDIRECT_URI=http://localhost:8000/api/auth/cloudreve/callback
-CLOUDREVE_OAUTH_SCOPE="openid offline_access"
+CLOUDREVE_OAUTH_SCOPE="openid profile offline_access Files.Read"
 CLOUDREVE_TOKEN_STORE_PATH=data/runtime/cloudreve_tokens.json
 CLOUDREVE_OAUTH_CONFIG_PATH=data/runtime/cloudreve_oauth_config.json
 ```
@@ -19,7 +19,7 @@ Open `GET /api/auth/cloudreve/start` from the Nexus API, or use the web console 
 
 During callback, Nexus sends Cloudreve's documented token exchange form fields: `grant_type=authorization_code`, `client_id`, `client_secret`, and `code`.
 
-The `openid` scope is required by Cloudreve's OAuth authorization page, and `offline_access` is required to receive a `refresh_token`. The web console authorization status actively calls Cloudreve's refresh endpoint before showing `authorized`. A token file that merely contains old tokens is not enough. If Cloudreve returns a refresh failure, the console should show that re-authorization is required.
+The `openid` scope is required by Cloudreve's OAuth authorization page, `profile` is part of Cloudreve's documented OAuth example, `offline_access` is required to receive a `refresh_token`, and `Files.Read` lets Nexus read file contents for ingestion. The web console authorization status actively calls Cloudreve's refresh endpoint before showing `authorized`. A token file that merely contains old tokens is not enough. If Cloudreve returns a refresh failure, the console should show that re-authorization is required.
 
 Manual token configuration is still supported when OAuth app credentials are not available:
 

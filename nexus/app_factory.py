@@ -110,7 +110,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
                 "client_id": payload.get("client_id"),
                 "client_secret": payload.get("client_secret"),
                 "redirect_uri": payload.get("redirect_uri") or app_settings.cloudreve_oauth_redirect_uri,
-                "scope": payload.get("scope") or "openid offline_access",
+                "scope": payload.get("scope") or "openid profile offline_access Files.Read",
             }
         )
         return config_store.status()
@@ -127,7 +127,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
                     "error": "oauth_config_required",
                     "message": str(exc),
                     "redirect_uri": oauth_settings.cloudreve_oauth_redirect_uri,
-                    "required_scope": "openid offline_access",
+                    "required_scope": "openid profile offline_access Files.Read",
                 },
             ) from exc
 

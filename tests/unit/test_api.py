@@ -52,6 +52,7 @@ def test_cloudreve_oauth_start_redirects_to_authorization_endpoint():
     assert "client_id=client-id" in location
     assert "openid" in location
     assert "offline_access" in location
+    assert "Files.Read" in location
 
 
 def test_cloudreve_oauth_status_reports_token_store_state(tmp_path):
@@ -82,7 +83,7 @@ def test_cloudreve_oauth_config_can_be_saved_and_used_for_authorization(tmp_path
 
     assert config_response.status_code == 200
     assert config_response.json()["configured"] is True
-    assert config_response.json()["scope"] == "openid offline_access"
+    assert config_response.json()["scope"] == "openid profile offline_access Files.Read"
     assert start_response.status_code == 307
     assert start_response.headers["location"].startswith("http://cloudreve.local/session/authorize?")
 
