@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any
 import httpx
 
 from nexus.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 # Path to knowledge-graph skill
@@ -56,6 +59,20 @@ DEFAULT_ONTOLOGY = {
 }
 
 # Document type specific templates
+# ---------------------------------------------------------------------------
+# Map-Reduce thresholds
+# ---------------------------------------------------------------------------
+#: Characters fed to the LLM in single-pass mode.
+_SINGLE_PASS_LIMIT: int = 12_000
+#: Character budget per segment in map-reduce mode.
+_SEGMENT_SIZE: int = 8_000
+#: Overlap between adjacent segments to preserve context across boundaries.
+_SEGMENT_OVERLAP: int = 400
+#: Documents longer than this switch from single-pass to map-reduce.
+_MAP_REDUCE_THRESHOLD: int = 10_000
+#: Minimum entity confidence score; lower entries are dropped during merge.
+MIN_ENTITY_CONFIDENCE: float = 0.5
+
 DOCUMENT_TEMPLATES = {
     "academic_paper": {
         "entity_types": ["Researcher", "Institution", "Method", "Dataset", "Metric", "Concept"],
@@ -104,31 +121,38 @@ class KnowledgeExtractor:
         doc_type: str = "general",
         ontology: dict | None = None,
     ) -> ExtractedKnowledge:
-        """Extract knowledge from text.
-        
+        """Extract knowledge from text, using map-reduce for long documents.
+
+        For documents shorter than ``_MAP_REDUCE_THRESHOLD`` a single LLM call
+        is made (same as before).  For longer documents the text is split into
+        overlapping segments and each segment is extracted independently; the
+        results are then merged and deduplicated.
+
         Args:
-            text: The text content to extract knowledge from
+            text: The text content to extract knowledge from.
             doc_type: Type of document (academic_paper, technical_doc, etc.)
-            ontology: Custom ontology (uses default if not provided)
-        
+            ontology: Custom ontology (uses default if not provided).
+
         Returns:
-            ExtractedKnowledge with entities, relations, and summary
+            ExtractedKnowledge with entities, relations, and summary.
         """
         if not self.api_key:
-            # Return mock extraction if no API key
             return self._mock_extraction(text, doc_type)
-        
-        # Get ontology for this document type
+
         if ontology is None:
             ontology = self._get_ontology(doc_type)
-        
-        # Build extraction prompt
-        prompt = self._build_extraction_prompt(text, ontology, doc_type)
-        
-        result = self._call_chat_completion(prompt)
-        
-        # Validate and normalize
-        return self._normalize_result(result, doc_type)
+
+        if len(text) <= _MAP_REDUCE_THRESHOLD:
+            # Single-pass: original behaviour, cap at _SINGLE_PASS_LIMIT
+            prompt = self._build_extraction_prompt(text[:_SINGLE_PASS_LIMIT], ontology, doc_type)
+            result = self._call_chat_completion(prompt)
+            return self._normalize_result(result, doc_type)
+
+        # Map-Reduce: long document
+        logger.info(
+            "Map-reduce extraction: %d chars, doc_type=%s", len(text), doc_type
+        )
+        return self._extract_mapreduce(text, doc_type, ontology)
 
     def _call_chat_completion(self, prompt: str) -> dict[str, Any]:
         response = self.http_client.post(
@@ -153,7 +177,132 @@ class KnowledgeExtractor:
         payload = response.json()
         content = payload["choices"][0]["message"]["content"]
         return json.loads(content)
-    
+
+    # ------------------------------------------------------------------
+    # Map-Reduce helpers
+    # ------------------------------------------------------------------
+
+    def _split_text(self, text: str) -> list[str]:
+        """Split *text* into overlapping segments for map-reduce extraction."""
+        segments: list[str] = []
+        start = 0
+        while start < len(text):
+            end = min(start + _SEGMENT_SIZE, len(text))
+            segments.append(text[start:end])
+            if end >= len(text):
+                break
+            start = end - _SEGMENT_OVERLAP
+        return segments
+
+    def _extract_mapreduce(
+        self, text: str, doc_type: str, ontology: dict
+    ) -> ExtractedKnowledge:
+        """Extract knowledge from a long document via map-reduce."""
+        segments = self._split_text(text)
+        logger.info(
+            "Map-reduce: %d segments × ~%d chars each",
+            len(segments),
+            _SEGMENT_SIZE,
+        )
+
+        partials: list[ExtractedKnowledge] = []
+        for i, segment in enumerate(segments):
+            try:
+                prompt = self._build_extraction_prompt(segment, ontology, doc_type)
+                raw = self._call_chat_completion(prompt)
+                partial = self._normalize_result(raw, doc_type)
+                partials.append(partial)
+                logger.debug(
+                    "Segment %d/%d: %d entities, %d relations",
+                    i + 1, len(segments),
+                    len(partial.entities), len(partial.relations),
+                )
+            except Exception as exc:
+                logger.warning("Segment %d/%d failed: %s", i + 1, len(segments), exc)
+
+        if not partials:
+            # All segments failed — fall back to single-pass on the first window
+            logger.warning("All segments failed; falling back to single-pass")
+            prompt = self._build_extraction_prompt(text[:_SINGLE_PASS_LIMIT], ontology, doc_type)
+            raw = self._call_chat_completion(prompt)
+            return self._normalize_result(raw, doc_type)
+
+        return self._merge_extractions(partials)
+
+    def _merge_extractions(
+        self, results: list[ExtractedKnowledge]
+    ) -> ExtractedKnowledge:
+        """Merge partial extractions: deduplicate entities and relations."""
+        # Entities — deduplicate by ID (stable: type_label), first occurrence wins
+        seen_ids: dict[str, dict] = {}
+        for r in results:
+            for entity in r.entities:
+                eid = entity.get("id", "")
+                if eid and eid not in seen_ids:
+                    seen_ids[eid] = entity
+        merged_entities = list(seen_ids.values())
+
+        # Relations — deduplicate by (source, target, relation) tuple
+        seen_rel_keys: set[tuple[str, str, str]] = set()
+        merged_relations: list[dict] = []
+        for r in results:
+            for rel in r.relations:
+                key = (
+                    rel.get("source", ""),
+                    rel.get("target", ""),
+                    rel.get("relation", ""),
+                )
+                if key not in seen_rel_keys:
+                    seen_rel_keys.add(key)
+                    merged_relations.append(rel)
+
+        # Tags — ordered union, max 20
+        seen_tags: set[str] = set()
+        merged_tags: list[str] = []
+        for r in results:
+            for tag in r.tags:
+                if tag.lower() not in seen_tags:
+                    seen_tags.add(tag.lower())
+                    merged_tags.append(tag)
+                    if len(merged_tags) >= 20:
+                        break
+
+        # Key points — all, capped at 10
+        merged_kp = [kp for r in results for kp in r.key_points][:10]
+
+        # Summary — synthesise or take first
+        summaries = [r.summary for r in results if r.summary.strip()]
+        final_summary = (
+            self._synthesize_summary(summaries) if len(summaries) > 1
+            else (summaries[0] if summaries else "")
+        )
+
+        return ExtractedKnowledge(
+            summary=final_summary,
+            tags=merged_tags,
+            entities=merged_entities,
+            relations=merged_relations,
+            key_points=merged_kp,
+            confidence=min(r.confidence for r in results),
+        )
+
+    def _synthesize_summary(self, summaries: list[str]) -> str:
+        """Ask the LLM to unify segment summaries into one coherent paragraph."""
+        combined = "\n\n".join(
+            f"[Part {i + 1}] {s}" for i, s in enumerate(summaries)
+        )
+        prompt = (
+            "The following are summaries of consecutive sections of a single document.\n"
+            "Write ONE concise summary (2-3 sentences) capturing the main topic and key conclusions.\n\n"
+            f"{combined}\n\n"
+            'Return JSON: {"summary": "unified summary here"}'
+        )
+        try:
+            result = self._call_chat_completion(prompt)
+            return result.get("summary", summaries[0])
+        except Exception:
+            return summaries[0]
+
     def _get_ontology(self, doc_type: str) -> dict:
         """Get ontology for document type."""
         # Try to use knowledge-graph skill's ontology builder
@@ -250,30 +399,34 @@ Return a JSON object with this exact structure:
 5. Set confidence 0.8+ only when fairly certain.
 
 ## Document Content
-{text[:12000]}
+{text}
 """
     
     def _normalize_result(self, result: dict, doc_type: str) -> ExtractedKnowledge:
-        """Normalize and validate extraction result."""
+        """Normalize, validate, and quality-filter the raw LLM extraction result."""
         entities = result.get("entities", [])
         relations = result.get("relations", [])
-        
-        # Ensure valid entity IDs
+
+        # Ensure every entity has a stable ID
         for entity in entities:
             if "id" not in entity or not entity["id"]:
                 label = entity.get("label", "unknown")
                 etype = entity.get("type", "Concept")
                 entity["id"] = f"{etype.lower()}_{label.lower().replace(' ', '_')}"
-        
-        # Validate relation references
+
+        # ⑤ Quality filter: drop entities below confidence threshold
+        entities = [
+            e for e in entities
+            if float(e.get("confidence", 1.0)) >= MIN_ENTITY_CONFIDENCE
+        ]
+
+        # ⑤ Quality filter: drop relations whose endpoints were removed
         entity_ids = {e["id"] for e in entities}
-        valid_relations = []
-        for rel in relations:
-            source = rel.get("source", "")
-            target = rel.get("target", "")
-            # Keep relations even if entities not explicitly extracted
-            valid_relations.append(rel)
-        
+        valid_relations = [
+            rel for rel in relations
+            if rel.get("source", "") in entity_ids and rel.get("target", "") in entity_ids
+        ]
+
         return ExtractedKnowledge(
             summary=result.get("summary", ""),
             tags=result.get("tags", []),
