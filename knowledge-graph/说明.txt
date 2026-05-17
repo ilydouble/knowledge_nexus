@@ -1,0 +1,20 @@
+knowledge-graph/                                                                                                                                                                                         
+  ├── SKILL.md                          (314行 - 主技能描述)
+  └── scripts/                                                                                                                                                                                             
+      ├── ontology_builder.py          - 本体/Schema构建
+      ├── graph_extractor.py           - 实体关系提取、去重、统计                                                                                                                                          
+      ├── graph_fusion.py              - 图对齐、合并、冲突解决
+      ├── graph_growth.py              - 增量增长、版本管理、模式检测                                                                                                                                      
+      └── graph_query.py               - 遍历、路径查找、模式匹配、导出
+  └── references/                                                                                                                                                                                          
+      └── extraction-prompts.md        - LLM提取prompt模板
+                                                                                                                                                                                                           
+  五个核心脚本覆盖完整知识图谱流水线：                                                                                                                                                                     
+                                                                                                                                                                                                           
+  1. 本体构建 (ontology_builder.py) — 定义概念类型和关系类型，支持领域建议和自定义扩展                                                                                                                     
+  2. 图谱提取 (graph_extractor.py) — 验证提取结果、去重节点、统计图信息、格式转换                                                                                                                          
+  3. 图谱融合 (graph_fusion.py) — 节点对齐（模糊匹配）、多图合并、关系合并去重                                                                                                                             
+  4. 动态生长 (graph_growth.py) — 增量添加节点/边、演化策略生成、版本快照、hub检测、版本对比                                                                                                               
+  5. 图谱查询 (graph_query.py) — 节点过滤、邻居遍历(BFS)、最短路径、模式匹配、子图提取、Neo4j/JSON-LD导出                                                                                                  
+                                                                                                                                                                                                           
+  提取阶段通过 deer-flow 的 LLM 工具（code interpreter）执行，脚本负责模板生成、验证和结果处理——与项目中 data-analysis、chart-visualization 等 skill 的设计模式一致。

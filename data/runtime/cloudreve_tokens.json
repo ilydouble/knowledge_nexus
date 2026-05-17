@@ -1,0 +1,10 @@
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwic3ViIjoiSnZoWiIsImV4cCI6MTc3OTAwMzk5NSwibmJmIjoxNzc5MDAwMzk1LCJzY29wZXMiOlsib3BlbmlkIiwicHJvZmlsZSIsIm9mZmxpbmVfYWNjZXNzIiwiRmlsZXMuUmVhZCJdfQ.r4c1rSnQSVkQkT5PaJPEA5y0jsNTZX-Z425_-YB6ZW0",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsInN1YiI6Ikp2aFoiLCJleHAiOjE3ODE1OTIzOTUsIm5iZiI6MTc3OTAwMDM5NSwic3RhdGVfaGFzaCI6IlNlbHYvdG5QWmFOQ1F6TE85RmU3SGowNlZWajZlaVVPMkxIOVlwMWdscWM9Iiwicm9vdF90b2tlbl9pZCI6IjMzNzlhYjg4LTY5NjUtNDI3OS1hNWI2LTEwYjY2NDdlZTllYSIsInNjb3BlcyI6WyJvcGVuaWQiLCJwcm9maWxlIiwib2ZmbGluZV9hY2Nlc3MiLCJGaWxlcy5SZWFkIl0sImNsaWVudF9pZCI6ImQzNjNlZjFiLTRjODAtNGIzZC1hYTZkLTc5MmI0OGY2MTYxNSJ9.1XsyhwustGqP_VS_DlSxqh9UUsLdFBKulu7PRNsADp0",
+  "access_expires": "2026-05-17T15:46:35.590427884+08:00",
+  "refresh_expires": "2026-06-16T14:46:35.590428134+08:00",
+  "token_type": "Bearer",
+  "expires_in": 3599,
+  "refresh_token_expires_in": 2591999,
+  "scope": "openid profile offline_access Files.Read"
+}

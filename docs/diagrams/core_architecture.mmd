@@ -1,0 +1,46 @@
+flowchart LR
+    User["用户 / 团队 / 管理员"]
+    Web["Web App<br/>文件树 + 知识检查器 + 图谱视图"]
+    API["API Gateway<br/>认证 / 租户 / 权限 / 审计"]
+
+    FileSvc["File Service<br/>上传 / 下载 / 预览 / 版本"]
+    MetaSvc["Metadata Service<br/>文件元数据 / 实体索引"]
+    OntologySvc["Ontology Service<br/>L1 标准本体 / 受控词表"]
+    DomainSvc["Domain Knowledge Service<br/>L2 团队图谱 / 项目知识库"]
+    PersonalSvc["Personal Cognition Service<br/>L3 私有链接 / 个人笔记"]
+
+    Parser["Multi-modal Parser<br/>文本 / 图像 / 视频 / 表格解析"]
+    Extractor["Semantic Extractor<br/>实体 / 事件 / 摘要 / 标签"]
+    AutoLinker["Auto-Linker<br/>自动关联推荐"]
+    GraphRAG["GraphRAG Engine<br/>图谱检索 + 向量检索 + 生成"]
+
+    ObjectStore[("Object Storage<br/>S3 Compatible")]
+    GraphDB[("Graph Database<br/>L1/L2 全局图 + L3 私有图分片")]
+    VectorDB[("Vector Database<br/>Embedding / Semantic Search")]
+    SearchIndex[("Search Index<br/>Keyword / Metadata")]
+
+    User --> Web --> API
+    API --> FileSvc
+    API --> MetaSvc
+    API --> OntologySvc
+    API --> DomainSvc
+    API --> PersonalSvc
+    API --> GraphRAG
+
+    FileSvc --> ObjectStore
+    FileSvc --> Parser --> Extractor
+    Extractor --> MetaSvc
+    Extractor --> VectorDB
+    Extractor --> GraphDB
+    Extractor --> SearchIndex
+
+    OntologySvc --> GraphDB
+    DomainSvc --> GraphDB
+    PersonalSvc --> GraphDB
+    AutoLinker --> GraphDB
+    AutoLinker --> VectorDB
+    AutoLinker --> PersonalSvc
+
+    GraphRAG --> GraphDB
+    GraphRAG --> VectorDB
+    GraphRAG --> SearchIndex

@@ -1,0 +1,7 @@
+{
+  "cloudreve_base_url": "http://localhost:5212",
+  "client_id": "d363ef1b-4c80-4b3d-aa6d-792b48f61615",
+  "client_secret": "vUcCllBPK9ZRqXBy0DPYJHrvxv5foGGn",
+  "redirect_uri": "http://localhost:8000/api/auth/cloudreve/callback",
+  "scope": "openid profile offline_access Files.Read"
+}
