@@ -22,6 +22,7 @@ function statusLabel(status) {
     running: "处理中",
     succeeded: "已完成",
     failed: "失败",
+    skipped: "已跳过",
   };
   return labels[status] || status;
 }
@@ -29,6 +30,7 @@ function statusLabel(status) {
 function stageLabel(stage) {
   const labels = {
     queued: "排队",
+    gate: "格式过滤",
     download: "下载",
     parse: "解析",
     semantic_extract: "语义提取",
@@ -413,6 +415,7 @@ function App() {
               <option value="processing">处理中</option>
               <option value="pending">等待中</option>
               <option value="failed">失败</option>
+              <option value="skipped">已跳过</option>
             </select>
           </div>
           <div className="fileList">

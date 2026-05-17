@@ -14,6 +14,7 @@ from nexus.models import GraphEdge, GraphNode, KnowledgeLayer, SemanticDocument,
 from nexus.repositories.base import NexusRepository
 from nexus.services.content_parser import ContentParserService, ParsedContent
 from nexus.services.embedding import DeterministicEmbeddingService
+from nexus.services.file_gate import FileGate
 from nexus.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
 from nexus.settings import Settings
 from nexus.vector.milvus_store import MilvusChunk, MilvusVectorStore
@@ -37,6 +38,8 @@ class ProcessingResult:
     error_code: str | None = None
     error: str | None = None
     processing_time_ms: int = 0
+    skipped: bool = False
+    skip_reason: str | None = None
 
 
 class SemanticPipeline:
@@ -59,6 +62,7 @@ class SemanticPipeline:
     ) -> None:
         self.settings = settings or Settings.from_env()
         self.cloudreve_client = CloudreveClient(token=cloudreve_token)
+        self.file_gate = FileGate()
         self.content_parser = ContentParserService()
         self.knowledge_extractor = KnowledgeExtractor(
             api_key=self.settings.zhipu_api_key or self.settings.openai_api_key,
@@ -107,12 +111,23 @@ class SemanticPipeline:
         stage = "download"
         
         try:
+            # Step 0: Gate check — decide before downloading anything
+            filename = uri.split("/")[-1] or "unknown"
+            gate = self.file_gate.check(filename)
+            if not gate.should_process:
+                logger.info("Gate skipped %s: %s", uri, gate.reason)
+                return ProcessingResult(
+                    uri=uri,
+                    filename=filename,
+                    success=True,
+                    stage="gate",
+                    skipped=True,
+                    skip_reason=gate.reason,
+                )
+
             # Step 1: Download file from Cloudreve
             logger.info(f"Downloading file: {uri}")
             content = self._download_file(uri)
-            
-            # Extract filename from URI
-            filename = uri.split("/")[-1] or "unknown"
             
             # Step 2: Parse content
             stage = "parse"

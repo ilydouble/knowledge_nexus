@@ -43,6 +43,16 @@ class IngestionService:
         job.error = None
         return self.repository.update_job(job)
 
+    def mark_skipped(self, job_id: str, reason: str) -> IngestionJob:
+        """Mark a job as permanently skipped (unsupported / binary file type)."""
+        job = self._get_existing_job(job_id).model_copy()
+        job.status = "skipped"
+        job.stage = "gate"
+        job.finished_at = datetime.now(UTC)
+        job.error_code = "skipped"
+        job.error = reason
+        return self.repository.update_job(job)
+
     def mark_failed(self, job_id: str, error: str, *, stage: str | None = None, error_code: str | None = None) -> IngestionJob:
         job = self._get_existing_job(job_id).model_copy()
         job.status = "failed"
@@ -65,6 +75,8 @@ class IngestionService:
             document = documents.get(uri)
             if latest_job and latest_job.status == "failed":
                 status = "failed"
+            elif latest_job and latest_job.status == "skipped":
+                status = "skipped"
             elif latest_job and latest_job.status == "running":
                 status = "processing"
             elif document:

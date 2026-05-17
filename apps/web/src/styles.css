@@ -319,6 +319,11 @@ textarea.question {
   color: #b42318;
 }
 
+.status.skipped {
+  background: #f5f5f5;
+  color: #6b7280;
+}
+
 .status.processed,
 .status.succeeded {
   background: #e7f5ee;

@@ -98,10 +98,11 @@ class CloudreveScanner:
 
             # Determine which URIs are already known to the system.
             # Exclude failed jobs so they get re-queued on the next scan.
+            # Include skipped jobs so permanently-skipped files are never re-queued.
             known_uris: set[str] = set()
             known_uris.update(
                 job.uri for job in self.repository.list_jobs()
-                if job.status in ("pending", "running", "succeeded")
+                if job.status in ("pending", "running", "succeeded", "skipped")
             )
             known_uris.update(doc.uri for doc in self.repository.list_documents())
 

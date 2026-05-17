@@ -108,7 +108,10 @@ class Worker:
                 uri,
                 "batch-processor",
             )
-            if result.success:
+            if result.skipped:
+                self.ingestion.mark_skipped(job_id, result.skip_reason or "unsupported file type")
+                logger.info("Gate skipped %s: %s", uri, result.skip_reason)
+            elif result.success:
                 self.ingestion.mark_succeeded(job_id)
                 logger.info(
                     "Processed %s: entities=%d relations=%d chunks=%d time=%dms",
