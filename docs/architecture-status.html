@@ -261,19 +261,20 @@
     <header>
       <p class="eyebrow">Knowledge Nexus Architecture</p>
       <h1>整体架构设计与当前实现阶段</h1>
-      <p class="lead">Knowledge Nexus 是一个以 Cloudreve 为物理文件底座、以语义图谱和向量检索为知识叠加层的 AI 语义网盘。系统目标是让组织继续严格管理文件，同时允许知识关系在权限边界之上自由生长。</p>
+      <p class="lead">Knowledge Nexus 以 Cloudreve 为物理文件底座，以 Neo4j 知识图谱为语义叠加层，通过 MCP 协议将图谱开放给 Claude Code 等 AI 智能体。向量嵌入按需启用，当前以"图谱优先"模式运行。</p>
     </header>
 
     <section>
       <h2>1. 架构核心命题</h2>
-      <p>本项目的核心原则是：<strong>物理存储受控，逻辑链接自由</strong>。原始文件、下载、预览和硬权限仍由 Cloudreve、对象存储与组织空间管理；摘要、标签、实体、双向链接、图谱关系和 GraphRAG 上下文由 Nexus 作为旁路语义层负责。</p>
+      <p>本项目的核心原则是：<strong>物理存储受控，逻辑链接自由</strong>。原始文件、下载、预览和硬权限仍由 Cloudreve 管理；摘要、标签、实体、图谱关系和 GraphRAG 上下文由 Nexus 作为旁路语义层负责，并通过 MCP 协议暴露给 AI 智能体。</p>
       <div class="diagram" aria-label="核心架构流程">
-        <div class="node">Cloudreve / 文件系统<br>文件、目录、权限、事件</div>
+        <div class="node">Cloudreve<br>文件、目录、权限、全文检索</div>
         <div class="arrow">→</div>
-        <div class="node">Nexus API / Worker<br>录入、解析、链接、检索</div>
+        <div class="node">Worker + Pipeline<br>分类、解析、LLM 提取</div>
         <div class="arrow">→</div>
-        <div class="node">知识存储层<br>Postgres、Neo4j、Milvus</div>
+        <div class="node">Neo4j + Postgres<br>图谱 + 元数据</div>
       </div>
+      <p style="margin-top:14px;">MCP Server 在图谱与 AI 智能体之间搭桥，Claude Code 可直接调用图谱查询工具。</p>
     </section>
 
     <section>
@@ -312,49 +313,55 @@
         </thead>
         <tbody>
           <tr>
-            <td>Web Console</td>
-            <td>提供 MVP 演示界面，支持输入 Cloudreve URI、索引文本、查看知识检查器和 GraphRAG 结果。</td>
-            <td><code>apps/web/src/App.jsx</code></td>
+            <td>Worker</td>
+            <td>三循环并发：① SSE 监听 Cloudreve 文件事件；② 每 10 分钟全盘扫描，发现未处理文件；③ 每 30 秒批量处理队列（每批 3 个），防止 LLM API 并发爆炸。</td>
+            <td><code>nexus/worker.py</code></td>
+          </tr>
+          <tr>
+            <td>SemanticPipeline</td>
+            <td>文件处理主流程：FileGate 过滤 → ContentParser 解析 → DocumentClassifier 分类 → KnowledgeExtractor 提取 → Neo4j/Postgres 入库。可选向量嵌入（VECTOR_BACKEND=milvus）。</td>
+            <td><code>nexus/services/pipeline.py</code></td>
+          </tr>
+          <tr>
+            <td>FileGate</td>
+            <td>白名单过滤，只处理 PDF/DOCX/XLSX/TXT/MD/CSV/JSON 等有效文档格式，跳过图片、视频、压缩包等噪声文件。</td>
+            <td><code>nexus/services/file_gate.py</code></td>
+          </tr>
+          <tr>
+            <td>ContentParser</td>
+            <td>多格式解析：PDF（pdfplumber）、DOCX（python-docx）、Excel（openpyxl，只读结构摘要）、纯文本（1000 字/块）。</td>
+            <td><code>nexus/services/content_parser.py</code></td>
+          </tr>
+          <tr>
+            <td>DocumentClassifier</td>
+            <td>7 类文档自动分类（academic_paper / technical_doc / meeting_minutes / report / contract / email / tabular_data / general），优先级：file_type → 扩展名 → 文件名关键词 → 内容关键词 → 兜底。</td>
+            <td><code>nexus/services/document_classifier.py</code></td>
+          </tr>
+          <tr>
+            <td>KnowledgeExtractor</td>
+            <td>富本体提取：每种文档类型有专属实体类型和关系约束，注入 prompt 后调用 ZhipuAI LLM。长文档（&gt;10,000 字）走 Map-Reduce 分段提取后合并去重。</td>
+            <td><code>nexus/services/knowledge_extractor.py</code></td>
+          </tr>
+
+          <tr>
+            <td>Neo4j Graph Store</td>
+            <td>以 MERGE 写入文件节点、实体节点和关系边（幂等，重新扫描不产生重复）。支持全图查询、一跳邻域、实体搜索和文档子图。</td>
+            <td><code>nexus/graph/neo4j_store.py</code></td>
+          </tr>
+          <tr>
+            <td>MCP Server</td>
+            <td>通过 FastMCP 暴露 5 个工具：list_documents、get_document、search_entities、get_document_graph、find_documents_by_tag，供 Claude Code 等 AI 智能体查询图谱。</td>
+            <td><code>nexus/mcp_server.py</code></td>
           </tr>
           <tr>
             <td>FastAPI Gateway</td>
-            <td>暴露健康检查、Cloudreve 绑定、录入同步、演示索引、链接创建、图谱邻域、语义搜索和 GraphRAG 问答接口。</td>
+            <td>暴露健康检查、Cloudreve OAuth、录入同步、任务状态、文档列表、图谱邻域、触发扫描等接口。</td>
             <td><code>nexus/app_factory.py</code></td>
           </tr>
           <tr>
-            <td>Repository Port</td>
-            <td>以协议形式抽象任务、文档、链接、图谱数据的读写，当前有内存实现和 Postgres 实现。</td>
-            <td><code>nexus/repositories/</code></td>
-          </tr>
-          <tr>
-            <td>Semantic Processor</td>
-            <td>实现轻量文本规范化、分块、摘要、关键词标签和大写实体抽取，用于证明语义索引闭环。</td>
-            <td><code>nexus/services/semantic.py</code></td>
-          </tr>
-          <tr>
-            <td>Link Service</td>
-            <td>创建 L1/L2/L3 知识链接，并根据层级推导默认可见性和 owner scope。</td>
-            <td><code>nexus/services/links.py</code></td>
-          </tr>
-          <tr>
-            <td>Auto-Linker</td>
-            <td>基于共享标签生成 L3 自动链接候选，作为后续向量相似度和图谱推理的占位实现。</td>
-            <td><code>nexus/services/autolinker.py</code></td>
-          </tr>
-          <tr>
-            <td>Permission Filter</td>
-            <td>执行“先授权、后检索、再生成”的最小权限模型；不可访问节点会被替换为加密节点。</td>
-            <td><code>nexus/services/permissions.py</code></td>
-          </tr>
-          <tr>
-            <td>GraphRAG Service</td>
-            <td>按知识层过滤图谱结果，并只使用权限过滤后的可见节点生成演示答案和引用。</td>
-            <td><code>nexus/services/graphrag.py</code></td>
-          </tr>
-          <tr>
-            <td>Cloudreve Worker</td>
-            <td>监听 Cloudreve SSE 文件事件，将可解析事件转为 ingestion job。</td>
-            <td><code>nexus/worker.py</code></td>
+            <td>Web Console</td>
+            <td>文件处理状态、图谱可视化、GraphRAG 问答演示界面。</td>
+            <td><code>apps/web/</code></td>
           </tr>
         </tbody>
       </table>
@@ -363,18 +370,18 @@
     <section>
       <h2>4. 数据与调用流程</h2>
       <ol>
-        <li>用户或 Cloudreve 事件提交文件 URI，Nexus 创建 <code>IngestionJob</code>。</li>
-        <li>演示索引接口接收文本内容，<code>TextParser</code> 生成摘要、标签、实体和文本分块。</li>
-        <li>Repository 将语义文档、分块、知识链接持久化到内存或 Postgres。</li>
-        <li>图谱视图由文档节点和 <code>KnowledgeLink</code> 派生，Neo4j adapter 已提供文件节点与关系的 upsert 和一跳邻域查询能力。</li>
-        <li>Milvus adapter 已提供 chunk 向量写入与相似搜索接口，等待与真实 embedding 流水线更深集成。</li>
-        <li>检索和 GraphRAG 先按 L1/L2/L3 层级裁剪，再经过权限过滤，最后返回给 Web Console 或调用方。</li>
+        <li>Cloudreve 文件上传触发 SSE 事件，Worker 接收后创建 <code>IngestionJob</code>（pending 状态）。周期扫描也会为未处理文件补充创建任务。</li>
+        <li>批处理循环取出 pending 任务，调用 <code>SemanticPipeline.process_file()</code>：FileGate 过滤 → ContentParser 解析 → DocumentClassifier 分类 → KnowledgeExtractor 提取实体/关系/摘要/标签。</li>
+        <li>提取结果写入 Neo4j（实体图谱，MERGE 幂等）和 Postgres（文档摘要 + 标签 + chunks）。</li>
+        <li>任务状态更新为 succeeded 或 failed（记录错误阶段）。</li>
+        <li>AI 智能体通过 MCP Server 查询 Neo4j 图谱和 Postgres 文档元数据，无需直接操作数据库。</li>
+        <li>如开启 <code>VECTOR_BACKEND=milvus</code>，Pipeline 在入库后额外批量嵌入文本块写入 Milvus，支持向量相似检索。</li>
       </ol>
     </section>
 
     <section>
       <h2>5. 当前实现阶段</h2>
-      <div class="phase">当前处于 Phase 0/1：可运行 MVP 骨架</div>
+      <div class="phase">✅ Phase 2 完成：生产图谱提取 + MCP 智能体接入</div>
       <table>
         <thead>
           <tr>
@@ -385,49 +392,64 @@
         </thead>
         <tbody>
           <tr>
-            <td>项目骨架与运行入口</td>
+            <td>Cloudreve OAuth + SSE 事件监听</td>
             <td class="status-ok">已实现</td>
-            <td>包含 FastAPI 后端、React/Vite Web Console、Docker sidecar 编排和本地开发配置。</td>
+            <td>完整 OAuth2 授权码流程，SSE 实时监听文件事件，token 自动刷新。</td>
           </tr>
           <tr>
-            <td>Cloudreve 集成</td>
-            <td class="status-partial">部分实现</td>
-            <td>已实现 URI 解析、客户端、绑定占位接口和 SSE worker；完整认证、权限同步和文件内容拉取仍需完善。</td>
+            <td>周期全盘扫描</td>
+            <td class="status-ok">已实现</td>
+            <td>每 10 分钟扫描 Cloudreve 文件树，为未处理文件补充创建 ingestion job，不依赖 SSE 可靠性。</td>
           </tr>
           <tr>
-            <td>录入与语义处理</td>
-            <td class="status-ok">已实现 MVP</td>
-            <td>支持创建 ingestion job，并通过 demo-index 完成文本摘要、标签、实体和 chunk 生成。</td>
+            <td>FileGate 格式过滤</td>
+            <td class="status-ok">已实现</td>
+            <td>白名单过滤，噪声文件（图片/视频/压缩包）直接跳过，不进入 LLM 消耗。</td>
           </tr>
           <tr>
-            <td>持久化层</td>
-            <td class="status-ok">已实现 MVP</td>
-            <td>内存仓储用于快速演示，Postgres 仓储已覆盖 job、semantic document、chunk 和 knowledge link。</td>
+            <td>内容解析（PDF / DOCX / Excel / TXT）</td>
+            <td class="status-ok">已实现</td>
+            <td>Excel 只读结构摘要（表头+行数+样本），不把数据行喂给 LLM。</td>
           </tr>
           <tr>
-            <td>知识链接与权限过滤</td>
-            <td class="status-ok">已实现 MVP</td>
-            <td>支持创建分层链接，L3 默认私有；不可访问节点会以加密节点形式保留关系轮廓。</td>
+            <td>文档自动分类（7 类）</td>
+            <td class="status-ok">已实现</td>
+            <td>academic_paper / technical_doc / meeting_minutes / report / contract / email / tabular_data / general，多级优先规则。</td>
           </tr>
           <tr>
-            <td>自动链接候选</td>
-            <td class="status-ok">已实现 MVP</td>
-            <td>当前基于共享标签计算候选关系，适合作为后续 embedding 相似度和图谱规则的演示入口。</td>
+            <td>富本体知识图谱提取</td>
+            <td class="status-ok">已实现</td>
+            <td>每类文档专属实体类型 + 关系约束，ZhipuAI GLM LLM 提取，结果写入 Neo4j。</td>
           </tr>
           <tr>
-            <td>Neo4j 图谱适配器</td>
-            <td class="status-ok">已实现适配器</td>
-            <td>支持文件节点、关系 upsert 和一跳邻域查询；主 API 当前仍以 Repository 派生图为主。</td>
+            <td>Map-Reduce 长文处理</td>
+            <td class="status-ok">已实现</td>
+            <td>文档超 10,000 字时分段提取后合并去重，避免上下文溢出。</td>
           </tr>
           <tr>
-            <td>Milvus 向量适配器</td>
-            <td class="status-partial">已实现但需环境验收</td>
-            <td>代码支持 collection、chunk upsert 和 search；README 记录了本地 Milvus 实例仍存在 DML channel/loading 问题。</td>
+            <td>Neo4j 图谱存储（幂等）</td>
+            <td class="status-ok">已实现</td>
+            <td>全部使用 MERGE，相同 URI 的节点和 ID 的边只更新不新建，重新扫描安全。</td>
           </tr>
           <tr>
-            <td>真实 AI 抽取与 GraphRAG</td>
-            <td class="status-gap">尚未完成</td>
-            <td>当前抽取与回答是确定性 MVP 逻辑；还没有接入大模型、复杂 prompt、混合检索排序和答案生成链路。</td>
+            <td>Postgres 文档元数据存储</td>
+            <td class="status-ok">已实现</td>
+            <td>摘要、标签、实体列表、chunks、任务状态全部持久化。</td>
+          </tr>
+          <tr>
+            <td>MCP Server（Claude Code 接入）</td>
+            <td class="status-ok">已实现</td>
+            <td>5 个工具暴露 Neo4j 图谱和 Postgres 文档元数据，Claude Code 可直接调用。</td>
+          </tr>
+          <tr>
+            <td>向量嵌入（BigModel embedding-3）</td>
+            <td class="status-ok">按需开启</td>
+            <td>VECTOR_BACKEND=milvus 时启用，批量 64 chunks/次，当前默认关闭（none）以降低成本。</td>
+          </tr>
+          <tr>
+            <td>Web 控制台</td>
+            <td class="status-ok">已实现</td>
+            <td>文件处理状态监控、Neo4j 图谱可视化、GraphRAG 问答演示。</td>
           </tr>
         </tbody>
       </table>
@@ -435,23 +457,23 @@
 
     <section>
       <h2>6. 当前部署视图</h2>
-      <p>MVP 推荐以 sidecar 方式运行：不重复搭建现有 <code>kg-*</code> 基础设施，而是让 Nexus API、Worker 和 Web 接入既有 Docker network。</p>
+      <p>推荐以 Host 模式运行：复用已有的 <code>kg-*</code> Docker 基础设施（Postgres、Neo4j、Redis），按需启动以下 4 个进程。</p>
       <div class="grid two">
         <div class="box">
-          <h3>Host 开发模式</h3>
+          <h3>Host 开发模式（推荐）</h3>
           <ul>
-            <li>Python 3.11，运行 <code>uvicorn apps.api.main:app --reload</code>。</li>
-            <li>Web 端在 <code>apps/web</code> 中通过 <code>npm run dev</code> 启动。</li>
-            <li>默认 API 地址为 <code>http://localhost:8000</code>，Web 地址为 <code>http://localhost:5173</code>。</li>
+            <li><code>uvicorn apps.api.main:app --reload</code> → API :8000</li>
+            <li><code>cd apps/web &amp;&amp; npm run dev</code> → Web :5173</li>
+            <li><code>python -m nexus.worker</code> → 文件处理 Worker</li>
+            <li><code>python -m nexus.mcp_server</code> → MCP Server（供 Claude Code）</li>
           </ul>
         </div>
         <div class="box">
-          <h3>Docker Sidecar 模式</h3>
+          <h3>向量嵌入（按需开启）</h3>
           <ul>
-            <li><code>nexus-api</code> 提供 API Gateway。</li>
-            <li><code>nexus-worker</code> 监听 Cloudreve 文件事件。</li>
-            <li><code>nexus-web</code> 提供前端控制台。</li>
-            <li>外部依赖通过 <code>kg-network</code> 连接到 Postgres、Redis、Neo4j、Milvus 和 MinIO。</li>
+            <li>默认 <code>VECTOR_BACKEND=none</code>，Milvus 不连接，无嵌入 API 调用。</li>
+            <li>改为 <code>VECTOR_BACKEND=milvus</code> 后重启 API + Worker 即可启用。</li>
+            <li>历史文件不自动补跑，可手动重新触发扫描（幂等，Neo4j 图谱不重复）。</li>
           </ul>
         </div>
       </div>
@@ -460,28 +482,28 @@
     <section>
       <h2>7. 下一阶段建议</h2>
       <ol>
-        <li>补齐 Cloudreve 文件内容读取、用户身份映射、空间权限同步和事件幂等处理。</li>
-        <li>把语义处理从 demo-index 推进到真实 ingestion pipeline，支持文件解析、异步任务状态和失败重试。</li>
-        <li>将 Neo4j 与 Milvus 纳入主查询路径，形成关键词、向量、图邻域的混合检索。</li>
-        <li>接入真实 embedding 与大模型生成，完善 GraphRAG prompt、引用、权限边界和答案审计。</li>
-        <li>扩展 Web Console：文件树、知识检查器、图谱层级开关、自动链接确认和个人笔记入口。</li>
-        <li>把 L1 本体、L2 团队图谱、L3 私有图谱的治理流程落到数据模型和 API 上。</li>
+        <li>接入外部 GraphRAG 平台（Dify / LangChain / LlamaIndex），将 Neo4j 图谱作为检索源，实现问答闭环。</li>
+        <li>实现 Experience Replay：Agent 运行时发现的细粒度知识，异步写回 Neo4j 图谱，形成持续学习闭环。</li>
+        <li>按需开启向量嵌入（<code>VECTOR_BACKEND=milvus</code>），形成"图谱 + 向量"混合检索，提升开放域问答精度。</li>
+        <li>扩展 MCP Server 工具集：增加实体路径查找、多跳推理、图谱写回（Experience Distillation）等工具。</li>
+        <li>扩展 Web Console：图谱层级开关、文档处理历史、实体详情页、GraphRAG 问答界面。</li>
+        <li>将 L1 本体、L2 团队图谱的治理流程落到数据模型和管理 API 上。</li>
       </ol>
     </section>
 
     <section>
       <h2>8. 事实来源</h2>
       <ul class="source-list">
-        <li><code>README.md</code>：项目定位、运行方式、当前 Phase 0/1 状态。</li>
-        <li><code>docs/architecture_design.md</code>：三层本体和产品架构愿景。</li>
-        <li><code>docs/core_architecture.md</code>：核心组件、数据流和权限过滤链路。</li>
-        <li><code>nexus/app_factory.py</code>：当前 API surface。</li>
-        <li><code>nexus/models.py</code>：核心领域模型。</li>
-        <li><code>nexus/repositories/</code>：内存与 Postgres 持久化实现。</li>
-        <li><code>nexus/services/</code>：录入、语义处理、链接、权限、自动链接、GraphRAG 服务。</li>
-        <li><code>nexus/graph/neo4j_store.py</code> 与 <code>nexus/vector/milvus_store.py</code>：图谱与向量库适配器。</li>
-        <li><code>apps/web/src/App.jsx</code>：当前 Web Console MVP。</li>
-        <li><code>infrastructure/docker/docker-compose.yml</code>：sidecar 部署拓扑。</li>
+        <li><code>README.md</code>：项目定位、启动命令、Phase 2 状态。</li>
+        <li><code>docs/semantic_pipeline.md</code>：语义处理管道详细设计。</li>
+        <li><code>docs/mcp_setup.md</code>：MCP Server 接入 Claude Code 指南。</li>
+        <li><code>nexus/worker.py</code>：三循环 Worker 实现。</li>
+        <li><code>nexus/services/pipeline.py</code>：SemanticPipeline 主流程。</li>
+        <li><code>nexus/services/document_classifier.py</code>：7 类文档分类器。</li>
+        <li><code>nexus/services/knowledge_extractor.py</code>：富本体提取 + Map-Reduce。</li>
+        <li><code>nexus/graph/neo4j_store.py</code>：Neo4j 图谱适配器（含 MCP 查询方法）。</li>
+        <li><code>nexus/mcp_server.py</code>：MCP Server 实现（FastMCP，5 个工具）。</li>
+        <li><code>nexus/app_factory.py</code>：FastAPI 路由与服务依赖。</li>
       </ul>
     </section>
 
