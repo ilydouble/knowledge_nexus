@@ -104,7 +104,9 @@ class SemanticPipeline:
             except Exception as e:
                 logger.warning(f"Failed to connect to Neo4j: {e}")
 
-        if enable_milvus and self.settings.milvus_host:
+        # Milvus is opt-in: requires both enable_milvus=True AND VECTOR_BACKEND=milvus
+        vector_backend = self.settings.vector_backend.lower()
+        if enable_milvus and vector_backend == "milvus" and self.settings.milvus_host:
             try:
                 self.milvus_store = MilvusVectorStore(
                     host=self.settings.milvus_host,
@@ -115,6 +117,8 @@ class SemanticPipeline:
                 logger.info("Milvus connection established (dim=%d)", self.embedding_service.dimensions)
             except Exception as e:
                 logger.warning(f"Failed to connect to Milvus: {e}")
+        elif vector_backend != "milvus":
+            logger.info("Vector store disabled (VECTOR_BACKEND=%s); skipping embedding", vector_backend)
     
     def process_file(
         self,

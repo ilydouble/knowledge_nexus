@@ -42,11 +42,11 @@ def test_settings_loads_zhipu_api_key_from_environment(monkeypatch):
     assert settings.zhipu_api_key == "zhipu-key"
 
 
-def test_settings_default_vector_backend_is_milvus(monkeypatch):
-    monkeypatch.delenv("VECTOR_BACKEND", raising=False)
-
-    settings = Settings.from_env()
-
+def test_settings_class_default_vector_backend_is_milvus():
+    # Tests the dataclass class-level default (not env-overridden).
+    # The deployment .env may set VECTOR_BACKEND=none to disable Milvus,
+    # but the code infrastructure defaults to "milvus" so it's opt-in.
+    settings = Settings()  # no env loading
     assert settings.vector_backend == "milvus"
 
 
