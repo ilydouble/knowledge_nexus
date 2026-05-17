@@ -1,6 +1,8 @@
 import json
 
+from nexus.services.document_classifier import CATEGORIES, DocumentClassifier
 from nexus.services.knowledge_extractor import (
+    DOCUMENT_TEMPLATES,
     ExtractedKnowledge,
     KnowledgeExtractor,
     MIN_ENTITY_CONFIDENCE,
@@ -187,3 +189,111 @@ def test_extract_uses_mapreduce_for_long_text():
     extractor.extract(long_text)
     # Must be more than 1 call (segments + synthesize_summary call)
     assert len(http_client.requests) > 1
+
+
+
+# ---------------------------------------------------------------------------
+# DocumentClassifier tests
+# ---------------------------------------------------------------------------
+
+class TestDocumentClassifier:
+    def setup_method(self):
+        self.clf = DocumentClassifier()
+
+    def test_excel_extension_always_tabular(self):
+        result = self.clf.classify("sales_2024.xlsx")
+        assert result.doc_type == "tabular_data"
+        assert result.strategy == "structural_summary"
+        assert result.confidence == 1.0
+
+    def test_parser_file_type_overrides_all(self):
+        # Even a .txt file is tabular if parser says so
+        result = self.clf.classify("data.txt", file_type="tabular_data")
+        assert result.doc_type == "tabular_data"
+        assert result.strategy == "structural_summary"
+
+    def test_csv_small_row_count_not_tabular(self):
+        result = self.clf.classify("data.csv", row_count=50)
+        # Small CSV → not forced into tabular_data by row_count signal
+        assert result.doc_type != "tabular_data" or result.confidence < 1.0
+
+    def test_csv_large_row_count_is_tabular(self):
+        result = self.clf.classify("data.csv", row_count=500)
+        assert result.doc_type == "tabular_data"
+        assert result.strategy == "structural_summary"
+
+    def test_filename_keyword_academic_paper(self):
+        result = self.clf.classify("research_paper_2024.pdf")
+        assert result.doc_type == "academic_paper"
+
+    def test_filename_keyword_meeting(self):
+        result = self.clf.classify("2024_meeting_minutes.docx")
+        assert result.doc_type == "meeting_minutes"
+
+    def test_filename_keyword_report(self):
+        result = self.clf.classify("monthly_report_may.pdf")
+        assert result.doc_type == "report"
+
+    def test_content_keyword_academic(self):
+        preview = "Abstract: This paper proposes a new methodology for... doi:10.1234/xyz"
+        result = self.clf.classify("unknown.pdf", content_preview=preview)
+        assert result.doc_type == "academic_paper"
+
+    def test_content_keyword_contract(self):
+        preview = "AGREEMENT made between 甲方 and 乙方. The parties hereby agree..."
+        result = self.clf.classify("doc.pdf", content_preview=preview)
+        assert result.doc_type == "contract"
+
+    def test_no_signal_falls_back_to_general(self):
+        result = self.clf.classify("untitled.pdf")
+        assert result.doc_type == "general"
+        assert result.strategy == "llm_extract"
+
+    def test_all_categories_have_strategy(self):
+        """Every category must define a strategy."""
+        for cat, meta in CATEGORIES.items():
+            assert "strategy" in meta, f"{cat} is missing 'strategy'"
+            assert meta["strategy"] in ("llm_extract", "structural_summary")
+
+    def test_tabular_template_in_document_templates(self):
+        assert "tabular_data" in DOCUMENT_TEMPLATES
+        assert "contract" in DOCUMENT_TEMPLATES
+        assert "email" in DOCUMENT_TEMPLATES
+
+
+# ---------------------------------------------------------------------------
+# KnowledgeExtractor tabular path
+# ---------------------------------------------------------------------------
+
+def _make_tabular_payload():
+    return {
+        "choices": [{"message": {"content": json.dumps({
+            "summary": "Sales dataset with 5000 rows.",
+            "tags": ["sales", "tabular"],
+            "entities": [
+                {"id": "dataset_sales", "label": "Sales", "type": "Dataset",
+                 "description": "Sales data", "confidence": 0.95},
+            ],
+            "relations": [],
+            "key_points": [{"content": "5000 rows", "type": "fact"}],
+        })}}]
+    }
+
+
+def test_extract_tabular_strategy_makes_single_llm_call():
+    """structural_summary strategy → only ONE LLM call (no map-reduce)."""
+    http_client = FakeHttpClient(_make_tabular_payload())
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
+    structural_text = "Excel Workbook: sales.xlsx\nSheet 1: \"Data\" — 5000 rows × 3 columns\nColumns: Date, Product, Revenue"
+
+    result = extractor.extract(structural_text, doc_type="tabular_data", strategy="structural_summary")
+
+    assert result.summary != ""
+    assert len(http_client.requests) == 1   # single call, no map-reduce
+
+def test_extract_tabular_doc_type_alone_triggers_structural_path():
+    """doc_type='tabular_data' implies structural path even without strategy kwarg."""
+    http_client = FakeHttpClient(_make_tabular_payload())
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
+    result = extractor.extract("Sheet 1: 100 rows", doc_type="tabular_data")
+    assert len(http_client.requests) == 1

@@ -39,6 +39,8 @@ _PROCESSABLE: frozenset[str] = frozenset({
     ".json", ".yaml", ".yml",
     ".xml",
     ".html", ".htm",
+    # Excel — structural summary extraction via ExcelParser + tabular_data strategy
+    ".xlsx", ".xls", ".xlsm",
 })
 
 #: Binary / media formats — no useful plain text; skip permanently.
@@ -66,7 +68,6 @@ _SKIP_BINARY: frozenset[str] = frozenset({
 
 #: Office formats / noisy logs we cannot parse yet — skip, not permanent.
 _UNSUPPORTED: frozenset[str] = frozenset({
-    ".xlsx", ".xls",
     ".pptx", ".ppt",
     ".odt", ".ods", ".odp",
     ".eml", ".msg",

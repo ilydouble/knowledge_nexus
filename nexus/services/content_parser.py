@@ -183,28 +183,105 @@ class DocxParser(BaseParser):
         return mime_type in self.SUPPORTED_TYPES or ext in self.SUPPORTED_EXTENSIONS
 
 
+class ExcelParser(BaseParser):
+    """Parser for Excel files (.xlsx / .xls / .xlsm).
+
+    Instead of dumping raw cell values to the LLM, this parser produces a
+    *structural summary*: sheet names, column headers, row counts, and a
+    small sample of values.  The resulting text is short enough for a single
+    LLM call and tells the model everything it needs to classify the dataset
+    and extract schema-level entities (Dataset, Field, DataType …).
+    """
+
+    SUPPORTED_TYPES: set[str] = {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    }
+    SUPPORTED_EXTENSIONS: set[str] = {".xlsx", ".xls", ".xlsm"}
+
+    # Maximum rows to include as sample data per sheet
+    _SAMPLE_ROWS = 3
+    # Maximum sheets to describe in detail (remaining sheets listed by name only)
+    _MAX_DETAIL_SHEETS = 5
+
+    def parse(self, content: bytes, filename: str) -> ParsedContent:
+        import io
+        import openpyxl
+
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        sections: list[str] = [f"Excel Workbook: {filename}"]
+        total_rows = 0
+        total_sheets = len(wb.sheetnames)
+
+        for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                sections.append(f"\nSheet {sheet_idx + 1}: \"{sheet_name}\" — empty")
+                continue
+
+            header = rows[0]
+            data_rows = rows[1:]
+            n_data = len(data_rows)
+            total_rows += n_data
+            col_names = [str(h) if h is not None else f"Col{i+1}" for i, h in enumerate(header)]
+
+            if sheet_idx < self._MAX_DETAIL_SHEETS:
+                section = [
+                    f"\nSheet {sheet_idx + 1}: \"{sheet_name}\" — {n_data:,} rows × {len(col_names)} columns",
+                    f"Columns: {', '.join(col_names)}",
+                ]
+                # Sample rows
+                for r_idx, row in enumerate(data_rows[: self._SAMPLE_ROWS], 1):
+                    vals = [str(v) if v is not None else "" for v in row[: len(col_names)]]
+                    section.append(f"  Row {r_idx}: {' | '.join(vals)}")
+                sections.append("\n".join(section))
+            else:
+                sections.append(f"\nSheet {sheet_idx + 1}: \"{sheet_name}\" — {n_data:,} rows × {len(col_names)} columns (details omitted)")
+
+        wb.close()
+        summary_text = "\n".join(sections)
+        metadata = {
+            "filename": filename,
+            "sheets": total_sheets,
+            "total_rows": total_rows,
+        }
+        # No chunking needed — structural summary is already compact
+        return ParsedContent(
+            text=summary_text,
+            metadata=metadata,
+            chunks=[summary_text] if summary_text.strip() else [],
+            file_type="tabular_data",
+        )
+
+    def supports(self, mime_type: str, filename: str) -> bool:
+        ext = Path(filename).suffix.lower()
+        return mime_type in self.SUPPORTED_TYPES or ext in self.SUPPORTED_EXTENSIONS
+
+
 class ContentParserService:
     """Service to parse various file formats."""
-    
+
     def __init__(self) -> None:
         self.parsers: list[BaseParser] = [
+            ExcelParser(),   # Must come before TextParser (xlsx is not plain text)
             PDFParser(),
             DocxParser(),
-            TextParser(),  # Text parser as fallback
+            TextParser(),    # Text parser as fallback
         ]
-    
+
     def parse(self, content: bytes, filename: str, mime_type: str = "") -> ParsedContent:
         """Parse file content using appropriate parser."""
         for parser in self.parsers:
             if parser.supports(mime_type, filename):
                 return parser.parse(content, filename)
-        
+
         # Fallback to text parser
         return TextParser().parse(content, filename)
-    
+
     def get_supported_types(self) -> dict[str, list[str]]:
         """Return supported MIME types and extensions."""
         return {
-            "mime_types": list(PDFParser.SUPPORTED_TYPES | DocxParser.SUPPORTED_TYPES | TextParser.SUPPORTED_TYPES),
-            "extensions": list(PDFParser.SUPPORTED_EXTENSIONS | DocxParser.SUPPORTED_EXTENSIONS | TextParser.SUPPORTED_EXTENSIONS),
+            "mime_types": list(PDFParser.SUPPORTED_TYPES | DocxParser.SUPPORTED_TYPES | TextParser.SUPPORTED_TYPES | ExcelParser.SUPPORTED_TYPES),
+            "extensions": list(PDFParser.SUPPORTED_EXTENSIONS | DocxParser.SUPPORTED_EXTENSIONS | TextParser.SUPPORTED_EXTENSIONS | ExcelParser.SUPPORTED_EXTENSIONS),
         }

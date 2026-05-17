@@ -14,6 +14,7 @@ from nexus.models import GraphEdge, GraphNode, KnowledgeLayer, SemanticDocument,
 from nexus.repositories.base import NexusRepository
 from nexus.services.content_parser import ContentParserService, ParsedContent
 from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
+from nexus.services.document_classifier import DocumentClassifier
 from nexus.services.file_gate import FileGate
 from nexus.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
 from nexus.settings import Settings
@@ -63,6 +64,7 @@ class SemanticPipeline:
         self.settings = settings or Settings.from_env()
         self.cloudreve_client = CloudreveClient(token=cloudreve_token)
         self.file_gate = FileGate()
+        self.document_classifier = DocumentClassifier()
         self.content_parser = ContentParserService()
         self.knowledge_extractor = KnowledgeExtractor(
             api_key=self.settings.zhipu_api_key or self.settings.openai_api_key,
@@ -148,16 +150,25 @@ class SemanticPipeline:
             logger.info(f"Parsing content: {filename}")
             parsed = self._parse_content(content, filename)
             
-            # Auto-detect document type if not provided
+            # Auto-classify document type and extraction strategy
+            classification = self.document_classifier.classify(
+                filename=filename,
+                content_preview=parsed.text[:600],
+                file_type=parsed.file_type,
+            )
             if doc_type is None:
-                doc_type = self.knowledge_extractor.get_document_type_suggestions(
-                    filename, parsed.text[:500]
-                )
-            
+                doc_type = classification.doc_type
+            strategy = classification.strategy
+            logger.info(
+                "Classified '%s' → type=%s strategy=%s confidence=%.2f signals=%s",
+                filename, doc_type, strategy, classification.confidence,
+                classification.signals[:3],
+            )
+
             # Step 3: Extract knowledge
             stage = "semantic_extract"
-            logger.info(f"Extracting knowledge (type: {doc_type})")
-            knowledge = self._extract_knowledge(parsed.text, doc_type)
+            logger.info(f"Extracting knowledge (type: {doc_type}, strategy: {strategy})")
+            knowledge = self._extract_knowledge(parsed.text, doc_type, strategy)
             
             # Step 4: Store in databases
             stage = "persist"
@@ -198,9 +209,9 @@ class SemanticPipeline:
         """Parse file content."""
         return self.content_parser.parse(content, filename)
     
-    def _extract_knowledge(self, text: str, doc_type: str) -> ExtractedKnowledge:
+    def _extract_knowledge(self, text: str, doc_type: str, strategy: str = "llm_extract") -> ExtractedKnowledge:
         """Extract structured knowledge from text."""
-        return self.knowledge_extractor.extract(text, doc_type)
+        return self.knowledge_extractor.extract(text, doc_type, strategy=strategy)
     
     def _store_knowledge(
         self,

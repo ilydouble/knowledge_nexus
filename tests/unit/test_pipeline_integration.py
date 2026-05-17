@@ -16,8 +16,8 @@ class FakeExtractor:
     def get_document_type_suggestions(self, filename, text_preview):
         return "technical_doc"
 
-    def extract(self, text, doc_type):
-        assert doc_type == "technical_doc"
+    def extract(self, text, doc_type, ontology=None, strategy="llm_extract"):
+        # doc_type is now set by DocumentClassifier, not FakeExtractor
         return ExtractedKnowledge(
             summary="Demo summary",
             tags=["demo", "semantic"],
@@ -62,6 +62,8 @@ class TestFileGate:
     @pytest.mark.parametrize("filename", [
         "report.pdf", "notes.md", "readme.txt", "data.csv",
         "config.json", "schema.yaml", "page.html", "doc.docx",
+        # Excel now handled via structural-summary extraction
+        "spreadsheet.xlsx", "data.xls", "workbook.xlsm",
     ])
     def test_processable_extensions(self, filename):
         result = self.gate.check(filename)
@@ -81,7 +83,7 @@ class TestFileGate:
         assert result.permanent_skip is True
 
     @pytest.mark.parametrize("filename", [
-        "spreadsheet.xlsx", "slides.pptx", "email.eml", "data.xls",
+        "slides.pptx", "email.eml",
     ])
     def test_unsupported_extensions_are_skipped_but_not_permanent(self, filename):
         result = self.gate.check(filename)

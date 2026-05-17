@@ -94,6 +94,21 @@ DOCUMENT_TEMPLATES = {
         "relation_types": ["REPORTS_ON", "HAS_RISK", "ACHIEVED_BY", "STATUS_OF"],
         "extraction_focus": "key_metrics, progress, risks, recommendations",
     },
+    "contract": {
+        "entity_types": ["Party", "Obligation", "Right", "Term", "Penalty", "Jurisdiction"],
+        "relation_types": ["PARTY_TO", "OBLIGATED_BY", "GOVERNED_BY", "SUBJECT_TO", "PENALIZED_BY"],
+        "extraction_focus": "parties, key obligations, rights, terms, penalties, governing law",
+    },
+    "email": {
+        "entity_types": ["Person", "Organization", "Topic", "Action", "Date"],
+        "relation_types": ["SENT_BY", "SENT_TO", "REFERENCES", "REQUESTS", "RESPONDS_TO"],
+        "extraction_focus": "sender, recipients, main topic, requested actions, key dates",
+    },
+    "tabular_data": {
+        "entity_types": ["Dataset", "Field", "DataType", "Sheet"],
+        "relation_types": ["HAS_FIELD", "BELONGS_TO_SHEET", "HAS_TYPE"],
+        "extraction_focus": "dataset name, fields/columns, data types, row count, domain/subject area",
+    },
 }
 
 
@@ -120,18 +135,21 @@ class KnowledgeExtractor:
         text: str,
         doc_type: str = "general",
         ontology: dict | None = None,
+        strategy: str = "llm_extract",
     ) -> ExtractedKnowledge:
-        """Extract knowledge from text, using map-reduce for long documents.
+        """Extract knowledge from text, routing by *strategy*.
 
-        For documents shorter than ``_MAP_REDUCE_THRESHOLD`` a single LLM call
-        is made (same as before).  For longer documents the text is split into
-        overlapping segments and each segment is extracted independently; the
-        results are then merged and deduplicated.
+        * ``"structural_summary"`` — lightweight schema extraction for tabular
+          data (Excel / large CSV).  Sends the compact sheet/column summary to
+          the LLM; never triggers map-reduce.
+        * ``"llm_extract"`` (default) — full extraction, single-pass or
+          map-reduce based on document length.
 
         Args:
-            text: The text content to extract knowledge from.
-            doc_type: Type of document (academic_paper, technical_doc, etc.)
+            text:     The text content to extract knowledge from.
+            doc_type: Category label (academic_paper, tabular_data, …).
             ontology: Custom ontology (uses default if not provided).
+            strategy: Extraction strategy hint from the DocumentClassifier.
 
         Returns:
             ExtractedKnowledge with entities, relations, and summary.
@@ -142,6 +160,12 @@ class KnowledgeExtractor:
         if ontology is None:
             ontology = self._get_ontology(doc_type)
 
+        # ── Tabular / structural path ──────────────────────────────────────────
+        if strategy == "structural_summary" or doc_type == "tabular_data":
+            logger.info("Tabular extraction (structural summary), doc_type=%s", doc_type)
+            return self._extract_tabular(text, ontology)
+
+        # ── Standard LLM path ─────────────────────────────────────────────────
         if len(text) <= _MAP_REDUCE_THRESHOLD:
             # Single-pass: original behaviour, cap at _SINGLE_PASS_LIMIT
             prompt = self._build_extraction_prompt(text[:_SINGLE_PASS_LIMIT], ontology, doc_type)
@@ -153,6 +177,60 @@ class KnowledgeExtractor:
             "Map-reduce extraction: %d chars, doc_type=%s", len(text), doc_type
         )
         return self._extract_mapreduce(text, doc_type, ontology)
+
+    def _extract_tabular(self, structural_text: str, ontology: dict) -> ExtractedKnowledge:
+        """Lightweight extraction for tabular data (Excel / large CSV).
+
+        The input is a structural summary produced by ExcelParser, not raw
+        cell values.  We ask the LLM to identify the dataset, its sheets,
+        columns, and inferred domain — a single short LLM call suffices.
+        """
+        prompt = f"""You are analyzing the *schema* of a tabular dataset, NOT raw data.
+The text below is a structural summary (sheet names, column headers, row counts, sample values).
+
+Your task: extract high-level metadata entities — do NOT enumerate individual rows.
+
+## Output Format (JSON)
+{{
+  "summary": "<1–2 sentence dataset description: name, domain, size>",
+  "tags": ["<domain tag>", ...],
+  "entities": [
+    {{"id": "<type_label>", "label": "<name>", "type": "Dataset|Field|Sheet|DataType",
+      "description": "<brief description>", "confidence": 0.9}}
+  ],
+  "relations": [
+    {{"source": "<entity_id>", "target": "<entity_id>", "relation": "HAS_FIELD|BELONGS_TO_SHEET|HAS_TYPE",
+      "confidence": 0.9}}
+  ],
+  "key_points": [
+    {{"content": "<insight about the dataset>", "type": "fact"}}
+  ]
+}}
+
+Rules:
+- Create ONE Dataset entity for the whole workbook / file.
+- Create ONE Sheet entity per worksheet (if multiple sheets).
+- Create ONE Field entity per column.
+- Add DataType entities only for clearly inferred types (e.g. "Date", "Currency", "Boolean").
+- Keep relations: Dataset HAS_FIELD Field, Field BELONGS_TO_SHEET Sheet.
+- Do not hallucinate columns that are not listed.
+
+## Structural Summary
+{structural_text[:6000]}
+"""
+        try:
+            raw = self._call_chat_completion(prompt)
+            return self._normalize_result(raw, "tabular_data")
+        except Exception as exc:
+            logger.warning("Tabular extraction failed: %s", exc)
+            return ExtractedKnowledge(
+                summary=structural_text[:300],
+                tags=["tabular_data"],
+                entities=[],
+                relations=[],
+                key_points=[],
+                raw_response={"error": str(exc)},
+            )
 
     def _call_chat_completion(self, prompt: str) -> dict[str, Any]:
         response = self.http_client.post(
