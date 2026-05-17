@@ -53,6 +53,10 @@ class Settings:
     llm_provider: str = "zhipu"
     llm_model: str = "glm-4.7"
     llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    # Embedding settings (BigModel embedding-3)
+    embedding_model: str = "embedding-3"
+    embedding_dimensions: int = 2048
+    embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4/embeddings"
     nexus_storage_backend: str = "memory"
 
     @classmethod
@@ -96,5 +100,8 @@ class Settings:
             llm_provider=env("LLM_PROVIDER", cls.llm_provider) or cls.llm_provider,
             llm_model=env("LLM_MODEL", cls.llm_model) or cls.llm_model,
             llm_base_url=env("LLM_BASE_URL", cls.llm_base_url) or cls.llm_base_url,
+            embedding_model=env("EMBEDDING_MODEL", cls.embedding_model) or cls.embedding_model,
+            embedding_dimensions=int(env("EMBEDDING_DIMENSIONS", str(cls.embedding_dimensions)) or str(cls.embedding_dimensions)),
+            embedding_base_url=env("EMBEDDING_BASE_URL", cls.embedding_base_url) or cls.embedding_base_url,
             nexus_storage_backend=env("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend) or cls.nexus_storage_backend,
         )

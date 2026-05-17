@@ -13,7 +13,7 @@ from nexus.graph.neo4j_store import Neo4jGraphStore
 from nexus.models import GraphEdge, GraphNode, KnowledgeLayer, SemanticDocument, TextChunk
 from nexus.repositories.base import NexusRepository
 from nexus.services.content_parser import ContentParserService, ParsedContent
-from nexus.services.embedding import DeterministicEmbeddingService
+from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
 from nexus.services.file_gate import FileGate
 from nexus.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
 from nexus.settings import Settings
@@ -70,14 +70,27 @@ class SemanticPipeline:
             base_url=self.settings.llm_base_url,
         )
         self.repository = repository
-        
-        # Embedding service (deterministic for now, can use OpenAI embeddings)
-        self.embedding_service = DeterministicEmbeddingService(dimensions=64)
-        
+
+        # Embedding service — prefer real BigModel embeddings when API key is present
+        embedding_api_key = self.settings.zhipu_api_key or self.settings.openai_api_key
+        if embedding_api_key:
+            self.embedding_service: BigModelEmbeddingService | DeterministicEmbeddingService = BigModelEmbeddingService(
+                api_key=embedding_api_key,
+                model=self.settings.embedding_model,
+                dimensions=self.settings.embedding_dimensions,
+                base_url=self.settings.embedding_base_url,
+            )
+            logger.info(
+                "Embedding: BigModel %s (%d-dim)", self.settings.embedding_model, self.settings.embedding_dimensions
+            )
+        else:
+            self.embedding_service = DeterministicEmbeddingService(dimensions=64)
+            logger.info("Embedding: deterministic fallback (64-dim, no API key)")
+
         # Storage backends
         self.neo4j_store: Neo4jGraphStore | None = None
         self.milvus_store: MilvusVectorStore | None = None
-        
+
         if enable_neo4j and self.settings.neo4j_uri:
             try:
                 self.neo4j_store = Neo4jGraphStore(
@@ -88,15 +101,16 @@ class SemanticPipeline:
                 logger.info("Neo4j connection established")
             except Exception as e:
                 logger.warning(f"Failed to connect to Neo4j: {e}")
-        
+
         if enable_milvus and self.settings.milvus_host:
             try:
                 self.milvus_store = MilvusVectorStore(
                     host=self.settings.milvus_host,
                     port=self.settings.milvus_port,
+                    dimensions=self.embedding_service.dimensions,
                 )
                 self.milvus_store.ensure_collection()
-                logger.info("Milvus connection established")
+                logger.info("Milvus connection established (dim=%d)", self.embedding_service.dimensions)
             except Exception as e:
                 logger.warning(f"Failed to connect to Milvus: {e}")
     
