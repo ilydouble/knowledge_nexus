@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,10 +12,6 @@ import httpx
 from nexus.settings import Settings
 
 logger = logging.getLogger(__name__)
-
-
-# Path to knowledge-graph skill
-SKILL_PATH = Path(__file__).parent.parent.parent / "knowledge-graph"
 
 
 @dataclass
@@ -32,30 +26,33 @@ class ExtractedKnowledge:
     raw_response: dict[str, Any] = field(default_factory=dict)
 
 
-# Default ontology for general documents
+# Default ontology for general / unclassified documents
 DEFAULT_ONTOLOGY = {
     "concepts": [
-        {"type": "Person", "description": "A human being, named individual"},
-        {"type": "Organization", "description": "A group or company"},
-        {"type": "Project", "description": "A project or initiative"},
-        {"type": "Technology", "description": "A technology, tool, or framework"},
-        {"type": "Concept", "description": "An abstract idea or topic"},
-        {"type": "Location", "description": "A geographical place"},
-        {"type": "Event", "description": "An occurrence in time"},
-        {"type": "Metric", "description": "A measurement or KPI"},
-        {"type": "Document", "description": "A document or file"},
+        {"type": "Person", "description": "A named individual (e.g. '张伟', 'Alan Turing'). NOT job titles or roles."},
+        {"type": "Organization", "description": "A named company, team, or institution (e.g. 'Alibaba', 'MIT'). NOT departments without names."},
+        {"type": "Project", "description": "A named project or initiative with a specific purpose."},
+        {"type": "Technology", "description": "A named tool, framework, language, or system (e.g. 'Python', 'Kafka')."},
+        {"type": "Concept", "description": "A key abstract idea or domain term central to the document."},
+        {"type": "Location", "description": "A named geographical place relevant to the content."},
+        {"type": "Event", "description": "A named occurrence with a time dimension (e.g. conference, release, incident)."},
+        {"type": "Metric", "description": "A measurable indicator with a value (e.g. '99.9% uptime', '2s latency')."},
     ],
     "relations": [
-        {"relation": "WORKS_AT", "source": "Person", "target": "Organization"},
-        {"relation": "WORKS_ON", "source": "Person", "target": "Project"},
-        {"relation": "USES", "source": "Person", "target": "Technology"},
-        {"relation": "DEVELOPS", "source": "Organization", "target": "Technology"},
-        {"relation": "PART_OF", "source": "Entity", "target": "Entity"},
-        {"relation": "DEPENDS_ON", "source": "Entity", "target": "Entity"},
-        {"relation": "RELATES_TO", "source": "Entity", "target": "Entity"},
-        {"relation": "LOCATED_IN", "source": "Entity", "target": "Location"},
-        {"relation": "MEASURES", "source": "Metric", "target": "Entity"},
+        {"relation": "WORKS_AT", "source": "Person", "target": "Organization", "description": "Person is employed at or affiliated with organization"},
+        {"relation": "WORKS_ON", "source": "Person", "target": "Project", "description": "Person contributes to project"},
+        {"relation": "USES", "source": "Person", "target": "Technology", "description": "Person or project uses a technology"},
+        {"relation": "PART_OF", "source": "Entity", "target": "Entity", "description": "Entity is a sub-component of another"},
+        {"relation": "DEPENDS_ON", "source": "Entity", "target": "Entity", "description": "Entity requires another to function"},
+        {"relation": "RELATES_TO", "source": "Entity", "target": "Entity", "description": "General semantic association when no specific relation fits"},
+        {"relation": "LOCATED_IN", "source": "Entity", "target": "Location", "description": "Entity is physically or legally based in a location"},
+        {"relation": "MEASURES", "source": "Metric", "target": "Entity", "description": "Metric quantifies an aspect of an entity"},
     ],
+    "instructions": (
+        "Extract named, specific entities only. Avoid generic terms. "
+        "Prefer concrete nouns over abstract ones. "
+        "Use RELATES_TO only as a last resort when no more specific relation applies."
+    ),
 }
 
 # Document type specific templates
@@ -75,39 +72,178 @@ MIN_ENTITY_CONFIDENCE: float = 0.5
 
 DOCUMENT_TEMPLATES = {
     "academic_paper": {
-        "entity_types": ["Researcher", "Institution", "Method", "Dataset", "Metric", "Concept"],
-        "relation_types": ["AUTHORED_BY", "USES_METHOD", "ACHIEVES_METRIC", "CITES", "ADDRESSES"],
-        "extraction_focus": "research_question, methodology, experiments, conclusions, contributions",
+        "concepts": [
+            {"type": "Researcher", "description": "Named author or researcher (e.g. 'Yann LeCun'). NOT institutions or generic roles like 'scientist'."},
+            {"type": "Institution", "description": "University, lab, or company affiliation (e.g. 'MIT', 'Google Brain'). NOT persons."},
+            {"type": "Method", "description": "Specific algorithm, model, or technique (e.g. 'BERT', 'ResNet-50'). NOT generic terms like 'deep learning'."},
+            {"type": "Dataset", "description": "Named dataset for training or evaluation (e.g. 'ImageNet', 'SQuAD', 'COCO')."},
+            {"type": "Metric", "description": "Quantitative performance measure WITH its value (e.g. 'accuracy 94.2%', 'BLEU 32.1'). Omit if no value given."},
+            {"type": "Concept", "description": "Core research topic being studied (e.g. 'transfer learning'). NOT method names which belong to Method."},
+            {"type": "Task", "description": "ML/AI task or problem being solved (e.g. 'sentiment analysis', 'image segmentation')."},
+        ],
+        "relations": [
+            {"relation": "AUTHORED_BY", "source": "Paper", "target": "Researcher", "description": "Paper written by this researcher"},
+            {"relation": "AFFILIATED_WITH", "source": "Researcher", "target": "Institution", "description": "Researcher's institutional affiliation"},
+            {"relation": "PROPOSES", "source": "Paper", "target": "Method", "description": "Paper introduces or proposes this method as its contribution"},
+            {"relation": "EVALUATES_ON", "source": "Method", "target": "Dataset", "description": "Method is tested or benchmarked on this dataset"},
+            {"relation": "ACHIEVES", "source": "Method", "target": "Metric", "description": "Method attains this performance metric"},
+            {"relation": "BUILDS_ON", "source": "Method", "target": "Method", "description": "Method extends or modifies a prior method"},
+            {"relation": "ADDRESSES", "source": "Paper", "target": "Task", "description": "Paper targets this task or problem"},
+            {"relation": "CITES", "source": "Paper", "target": "Method", "description": "Paper references an existing method from prior work"},
+        ],
+        "instructions": (
+            "Focus on: Abstract (research question & contribution), Methods section (proposed techniques), "
+            "Experiments (datasets, baselines, metrics with numbers), Results (performance), Conclusion (claims). "
+            "Do NOT treat section headings or chapter titles as entities. "
+            "Do NOT extract 'deep learning', 'neural network' as Concepts unless they ARE the main contribution. "
+            "Metrics must include actual numeric values."
+        ),
     },
     "technical_doc": {
-        "entity_types": ["Component", "API", "Database", "Framework", "Service", "Config"],
-        "relation_types": ["DEPENDS_ON", "CALLS", "STORES_IN", "IMPLEMENTS", "CONFIGURES"],
-        "extraction_focus": "architecture, components, interfaces, dependencies",
+        "concepts": [
+            {"type": "Component", "description": "A distinct named module, service, or subsystem (e.g. 'AuthService', 'DataPipeline'). NOT generic terms."},
+            {"type": "API", "description": "A specific endpoint, method, or interface (e.g. 'POST /api/users', 'getUserById()'). Must have a name/path."},
+            {"type": "Database", "description": "A named storage system (e.g. 'PostgreSQL', 'Redis', 'Milvus'). NOT abstract 'database'."},
+            {"type": "Framework", "description": "A named software framework or library (e.g. 'FastAPI', 'React', 'PyTorch')."},
+            {"type": "Config", "description": "A named configuration parameter or setting (e.g. 'MAX_RETRIES=3', 'JWT_SECRET'). Must be a specific name."},
+            {"type": "DataModel", "description": "A named data schema, model, or type (e.g. 'UserProfile', 'JobRecord', 'Order')."},
+            {"type": "Error", "description": "A specific error code or exception type (e.g. '401 Unauthorized', 'ConnectionTimeout')."},
+        ],
+        "relations": [
+            {"relation": "DEPENDS_ON", "source": "Component", "target": "Component", "description": "Component requires another component to operate"},
+            {"relation": "CALLS", "source": "Component", "target": "API", "description": "Component invokes this API endpoint or method"},
+            {"relation": "STORES_IN", "source": "Component", "target": "Database", "description": "Component persists data in this database"},
+            {"relation": "IMPLEMENTS", "source": "Component", "target": "API", "description": "Component provides the implementation of this API"},
+            {"relation": "USES", "source": "Component", "target": "Framework", "description": "Component is built with or depends on this framework"},
+            {"relation": "RETURNS", "source": "API", "target": "DataModel", "description": "API returns this data structure"},
+            {"relation": "RAISES", "source": "API", "target": "Error", "description": "API can raise or return this error type"},
+            {"relation": "CONFIGURES", "source": "Component", "target": "Config", "description": "Component behaviour is controlled by this config"},
+        ],
+        "instructions": (
+            "Extract concrete named items only — generic terms like 'module' or 'service' are NOT entities. "
+            "APIs must have specific names or paths. DataModels must appear as named schemas or classes. "
+            "Configs must be specific parameter names, not descriptions. "
+            "Relations should reflect actual code-level or architectural dependencies."
+        ),
     },
     "meeting_minutes": {
-        "entity_types": ["Person", "Task", "Decision", "Project", "Deadline"],
-        "relation_types": ["ASSIGNED_TO", "DECIDED_BY", "RELATES_TO", "DUE_BY"],
-        "extraction_focus": "decisions, action_items, participants, deadlines",
+        "concepts": [
+            {"type": "Person", "description": "Named meeting participant (e.g. '张伟', 'Sarah Chen'). NOT generic roles like 'PM'."},
+            {"type": "Task", "description": "A specific action item someone must do (e.g. '完成用户调研报告'). Must be actionable and concrete."},
+            {"type": "Decision", "description": "A resolution or agreement reached in the meeting (e.g. '确定使用 PostgreSQL 方案')."},
+            {"type": "Project", "description": "A named project or workstream discussed in the meeting."},
+            {"type": "Deadline", "description": "A specific date or relative time for a task (e.g. '2024-03-15', '下周五'). Must be concrete."},
+            {"type": "Issue", "description": "A named problem, blocker, or risk raised during the meeting."},
+        ],
+        "relations": [
+            {"relation": "ASSIGNED_TO", "source": "Task", "target": "Person", "description": "Task is owned by this person"},
+            {"relation": "DECIDED_BY", "source": "Decision", "target": "Person", "description": "Person proposed or approved this decision"},
+            {"relation": "DUE_BY", "source": "Task", "target": "Deadline", "description": "Task must be completed by this deadline"},
+            {"relation": "RELATES_TO", "source": "Task", "target": "Project", "description": "Task belongs to this project"},
+            {"relation": "RAISED_BY", "source": "Issue", "target": "Person", "description": "Person raised this issue"},
+            {"relation": "BLOCKS", "source": "Issue", "target": "Task", "description": "Issue is preventing this task from progressing"},
+        ],
+        "instructions": (
+            "Focus exclusively on: WHO is doing WHAT by WHEN (action items), decisions made, and issues raised. "
+            "Do NOT extract casual discussion or context as Tasks. "
+            "Tasks must have a clear owner (ASSIGNED_TO required). "
+            "Decisions should be distinct conclusions, not discussion points. "
+            "Only extract Deadlines that are explicitly stated."
+        ),
     },
     "report": {
-        "entity_types": ["Metric", "Project", "Team", "Risk", "Milestone", "Status"],
-        "relation_types": ["REPORTS_ON", "HAS_RISK", "ACHIEVED_BY", "STATUS_OF"],
-        "extraction_focus": "key_metrics, progress, risks, recommendations",
+        "concepts": [
+            {"type": "Metric", "description": "A KPI or measurable indicator WITH its value and unit (e.g. '月活跃用户 12万', '转化率 3.2%'). No value = no entity."},
+            {"type": "Project", "description": "A named project or business initiative being reported on."},
+            {"type": "Team", "description": "A named team or department responsible for a project or metric."},
+            {"type": "Risk", "description": "A named risk or threat with specific description (e.g. '供应链延迟风险', 'key person dependency')."},
+            {"type": "Milestone", "description": "A named project milestone or goal (e.g. 'Q2 Beta Launch', '10万日活目标')."},
+            {"type": "Achievement", "description": "A completed goal or positive outcome explicitly stated (e.g. '提前完成 MVP')."},
+            {"type": "Recommendation", "description": "An explicit actionable suggestion in the report (e.g. '建议扩充客服团队')."},
+        ],
+        "relations": [
+            {"relation": "OWNED_BY", "source": "Project", "target": "Team", "description": "Project is under this team's responsibility"},
+            {"relation": "MEASURED_BY", "source": "Project", "target": "Metric", "description": "Project performance tracked by this metric"},
+            {"relation": "HAS_RISK", "source": "Project", "target": "Risk", "description": "Project faces this risk"},
+            {"relation": "TARGETS", "source": "Project", "target": "Milestone", "description": "Project is working toward this milestone"},
+            {"relation": "ACHIEVED", "source": "Project", "target": "Achievement", "description": "Project completed this goal"},
+            {"relation": "RECOMMENDS", "source": "Report", "target": "Recommendation", "description": "Report explicitly recommends this action"},
+        ],
+        "instructions": (
+            "Prioritize concrete numbers — Metrics without values should not be extracted. "
+            "Risks must have specific descriptions, not generic 'schedule risk'. "
+            "Distinguish between current Achievements (done) and future Milestones (planned). "
+            "Recommendations must be explicitly stated in the report, not inferred."
+        ),
     },
     "contract": {
-        "entity_types": ["Party", "Obligation", "Right", "Term", "Penalty", "Jurisdiction"],
-        "relation_types": ["PARTY_TO", "OBLIGATED_BY", "GOVERNED_BY", "SUBJECT_TO", "PENALIZED_BY"],
-        "extraction_focus": "parties, key obligations, rights, terms, penalties, governing law",
+        "concepts": [
+            {"type": "Party", "description": "A named contracting party with full name (e.g. '甲方：北京科技有限公司', 'Acme Corp (Party A)'). NOT generic 'buyer/seller'."},
+            {"type": "Obligation", "description": "A specific duty one party MUST perform (indicated by 'shall', 'must', '应当', '须'). Paraphrase concisely."},
+            {"type": "Right", "description": "A specific entitlement one party MAY exercise (indicated by 'may', 'is entitled to', '有权'). Paraphrase concisely."},
+            {"type": "Penalty", "description": "A consequence for breach with amount if stated (e.g. '违约金10万元', 'liquidated damages of $5,000')."},
+            {"type": "Jurisdiction", "description": "Governing law or dispute resolution venue (e.g. '中国法律管辖', 'arbitration in Hong Kong')."},
+            {"type": "KeyDate", "description": "A critical date: effective date, expiry, payment due (e.g. '合同有效期2年', '2024-06-01生效')."},
+            {"type": "Subject", "description": "The main item, service, or intellectual property the contract covers."},
+        ],
+        "relations": [
+            {"relation": "PARTY_TO", "source": "Party", "target": "Contract", "description": "Party is a signatory to the contract"},
+            {"relation": "OBLIGATED_BY", "source": "Party", "target": "Obligation", "description": "Party must fulfill this obligation"},
+            {"relation": "ENTITLED_TO", "source": "Party", "target": "Right", "description": "Party holds this right"},
+            {"relation": "PENALIZED_BY", "source": "Party", "target": "Penalty", "description": "Party faces this penalty for breach"},
+            {"relation": "GOVERNED_BY", "source": "Contract", "target": "Jurisdiction", "description": "Contract is subject to this jurisdiction"},
+            {"relation": "EFFECTIVE_ON", "source": "Contract", "target": "KeyDate", "description": "Contract milestone date"},
+            {"relation": "COVERS", "source": "Contract", "target": "Subject", "description": "Contract governs this subject matter"},
+        ],
+        "instructions": (
+            "Extract both parties with their full legal names. "
+            "Identify obligations (shall/must/应当) separately from rights (may/有权). "
+            "Include specific penalty amounts when stated. "
+            "Capture all key dates. Do NOT extract boilerplate legal language as entities."
+        ),
     },
     "email": {
-        "entity_types": ["Person", "Organization", "Topic", "Action", "Date"],
-        "relation_types": ["SENT_BY", "SENT_TO", "REFERENCES", "REQUESTS", "RESPONDS_TO"],
-        "extraction_focus": "sender, recipients, main topic, requested actions, key dates",
+        "concepts": [
+            {"type": "Person", "description": "Named sender or recipient (e.g. '张总', 'john@acme.com → John'). NOT generic 'team' or 'all'."},
+            {"type": "Organization", "description": "Named company or team mentioned in the email body."},
+            {"type": "Topic", "description": "The main subject matter of the email thread (derived from Subject line or opening)."},
+            {"type": "Action", "description": "A specific request or follow-up item (e.g. '请在周五前确认方案', 'please review the attached'). Must be concrete."},
+            {"type": "KeyDate", "description": "A deadline or meeting time mentioned (e.g. '3月15日前', 'by EOD Friday')."},
+            {"type": "Attachment", "description": "A referenced document or file (e.g. '附件：Q1报告.pdf')."},
+        ],
+        "relations": [
+            {"relation": "SENT_BY", "source": "Email", "target": "Person", "description": "Email sender"},
+            {"relation": "SENT_TO", "source": "Email", "target": "Person", "description": "Email recipient (To/CC)"},
+            {"relation": "REQUESTS", "source": "Person", "target": "Action", "description": "Person is asking for this action"},
+            {"relation": "ACTION_BY", "source": "Action", "target": "KeyDate", "description": "Action should be completed by this date"},
+            {"relation": "REFERENCES", "source": "Email", "target": "Topic", "description": "Email is about this topic"},
+            {"relation": "ATTACHES", "source": "Email", "target": "Attachment", "description": "Email includes this attachment"},
+        ],
+        "instructions": (
+            "Identify who is asking whom to do what by when. "
+            "Actions must be concrete requests, NOT casual remarks or pleasantries. "
+            "Extract the Topic from the Subject line first, then the opening sentence. "
+            "Only extract Attachments that are explicitly named."
+        ),
     },
     "tabular_data": {
-        "entity_types": ["Dataset", "Field", "DataType", "Sheet"],
-        "relation_types": ["HAS_FIELD", "BELONGS_TO_SHEET", "HAS_TYPE"],
-        "extraction_focus": "dataset name, fields/columns, data types, row count, domain/subject area",
+        "concepts": [
+            {"type": "Dataset", "description": "The overall workbook or file (one entity per file)."},
+            {"type": "Sheet", "description": "A named worksheet within the workbook."},
+            {"type": "Field", "description": "A column header / field name (one entity per column)."},
+            {"type": "DataType", "description": "An inferred data type for a field (e.g. 'Date', 'Currency', 'Boolean'). Only when clearly determinable."},
+        ],
+        "relations": [
+            {"relation": "HAS_SHEET", "source": "Dataset", "target": "Sheet", "description": "Workbook contains this sheet"},
+            {"relation": "HAS_FIELD", "source": "Sheet", "target": "Field", "description": "Sheet contains this column/field"},
+            {"relation": "HAS_TYPE", "source": "Field", "target": "DataType", "description": "Field stores values of this data type"},
+        ],
+        "instructions": (
+            "Create ONE Dataset entity for the whole file. "
+            "Create ONE Field entity per column — do not merge or skip columns. "
+            "Only add DataType entities when the type is clearly determinable from column name or sample values. "
+            "Do not enumerate or describe individual row values."
+        ),
     },
 }
 
@@ -382,31 +518,17 @@ Rules:
             return summaries[0]
 
     def _get_ontology(self, doc_type: str) -> dict:
-        """Get ontology for document type."""
-        # Try to use knowledge-graph skill's ontology builder
-        try:
-            result = subprocess.run(
-                ["python", str(SKILL_PATH / "scripts" / "ontology_builder.py"),
-                 "--action", "suggest", "--domain", doc_type],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
-                ontology_data = json.loads(result.stdout)
-                return {
-                    "concepts": ontology_data.get("suggested_concepts", []) + ontology_data.get("base_concepts", []),
-                    "relations": ontology_data.get("base_relations", []),
-                }
-        except Exception:
-            pass
-        
-        # Use default or template-specific ontology
+        """Return the pre-defined rich ontology for *doc_type*.
+
+        Each entry in DOCUMENT_TEMPLATES contains:
+        - ``concepts``: list of {type, description} — precise type boundaries
+        - ``relations``: list of {relation, source, target, description} — constrained edges
+        - ``instructions``: extraction guidance injected into the prompt
+
+        Falls back to DEFAULT_ONTOLOGY for unknown / 'general' types.
+        """
         if doc_type in DOCUMENT_TEMPLATES:
-            template = DOCUMENT_TEMPLATES[doc_type]
-            return {
-                "concepts": [{"type": t, "description": f"{t} entity"} for t in template["entity_types"]],
-                "relations": [{"relation": r, "source": "Entity", "target": "Entity"} for r in template["relation_types"]],
-            }
-        
+            return DOCUMENT_TEMPLATES[doc_type]
         return DEFAULT_ONTOLOGY
     
     def _get_system_prompt(self) -> str:
@@ -423,58 +545,78 @@ You must identify:
 Always respond with valid JSON following the specified schema."""
     
     def _build_extraction_prompt(self, text: str, ontology: dict, doc_type: str) -> str:
-        """Build the extraction prompt."""
-        concept_types = [c["type"] for c in ontology.get("concepts", [])]
-        relation_types = [r["relation"] for r in ontology.get("relations", [])]
-        
-        template_info = ""
-        if doc_type in DOCUMENT_TEMPLATES:
-            template_info = f"\nDocument Type: {doc_type}\nFocus on: {DOCUMENT_TEMPLATES[doc_type].get('extraction_focus', 'general content')}"
-        
+        """Build an extraction prompt that includes per-type entity descriptions,
+        relation source→target constraints, and document-specific instructions."""
+
+        # ── Entity types section ──────────────────────────────────────────────
+        concept_lines = []
+        for c in ontology.get("concepts", []):
+            desc = c.get("description", "")
+            concept_lines.append(f"- **{c['type']}**: {desc}")
+        concepts_block = "\n".join(concept_lines) if concept_lines else "- Entity: any named item"
+
+        # ── Relation types section (with source → target) ─────────────────────
+        relation_lines = []
+        for r in ontology.get("relations", []):
+            src = r.get("source", "Entity")
+            tgt = r.get("target", "Entity")
+            desc = r.get("description", "")
+            relation_lines.append(f"- **{r['relation']}**: {src} → {tgt}  _{desc}_")
+        relations_block = "\n".join(relation_lines) if relation_lines else "- RELATES_TO: Entity → Entity"
+
+        # ── Per-type extraction instructions ─────────────────────────────────
+        instructions = ontology.get("instructions", "Extract named, specific entities only.")
+
         return f"""Analyze the following document and extract structured knowledge.
 
-{template_info}
+## Document Type: {doc_type}
 
-## Ontology
-Entity Types: {', '.join(concept_types)}
-Relation Types: {', '.join(relation_types)}
+## Entity Types  ← use ONLY these; use "Concept" for anything that doesn't fit
+{concepts_block}
 
-## Output Format
-Return a JSON object with this exact structure:
+## Relation Types  ← use ONLY these; respect the source → target direction
+{relations_block}
+
+## Extraction Instructions
+{instructions}
+
+## Output Format (respond with valid JSON only)
 {{
-  "summary": "Brief summary of the document (2-3 sentences)",
-  "tags": ["tag1", "tag2", "tag3"],
+  "summary": "2–3 sentence summary of the document",
+  "tags": ["tag1", "tag2"],
   "entities": [
     {{
-      "id": "unique_id",
+      "id": "<type_lower>_<label_snake_case>",
       "label": "Display Name",
       "type": "EntityType",
-      "description": "Brief description"
+      "description": "One sentence description",
+      "confidence": 0.9
     }}
   ],
   "relations": [
     {{
-      "source": "entity_id",
-      "target": "entity_id",
+      "source": "<entity_id>",
+      "target": "<entity_id>",
       "relation": "RELATION_TYPE",
-      "evidence": "Quote from text supporting this relation"
+      "evidence": "brief quote or paraphrase from text"
     }}
   ],
   "key_points": [
     {{
       "content": "Key insight or fact",
-      "type": "conclusion|recommendation|data",
+      "type": "conclusion|recommendation|fact",
       "confidence": 0.9
     }}
   ]
 }}
 
 ## Rules
-1. Use entity types from the ontology. For unknown types, use "Concept".
-2. Generate stable IDs: lowercase(type) + "_" + lowercase(label).replace(" ", "_")
-3. Only create relations that are clearly stated or strongly implied in the text.
-4. Include evidence for relations when possible.
-5. Set confidence 0.8+ only when fairly certain.
+1. Use ONLY the entity types listed above. Unknown types → use "Concept".
+2. Use ONLY the relation types listed above; respect the source → target direction.
+3. IDs must be stable: lowercase(type) + "_" + lowercase(label with spaces→underscores).
+4. Only create relations whose endpoints both exist in the entities list.
+5. Only assert relations clearly stated or strongly implied — no hallucination.
+6. Set confidence < 0.8 when uncertain; entities below 0.5 will be discarded.
 
 ## Document Content
 {text}

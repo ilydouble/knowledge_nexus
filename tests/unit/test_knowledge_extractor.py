@@ -255,10 +255,40 @@ class TestDocumentClassifier:
             assert "strategy" in meta, f"{cat} is missing 'strategy'"
             assert meta["strategy"] in ("llm_extract", "structural_summary")
 
-    def test_tabular_template_in_document_templates(self):
-        assert "tabular_data" in DOCUMENT_TEMPLATES
-        assert "contract" in DOCUMENT_TEMPLATES
-        assert "email" in DOCUMENT_TEMPLATES
+    def test_all_types_present_in_document_templates(self):
+        for doc_type in ("tabular_data", "contract", "email", "academic_paper",
+                         "technical_doc", "meeting_minutes", "report"):
+            assert doc_type in DOCUMENT_TEMPLATES, f"{doc_type} missing from DOCUMENT_TEMPLATES"
+
+    def test_each_template_has_rich_ontology_fields(self):
+        """Every template must have concepts (with descriptions) and relations (with source/target)."""
+        for doc_type, tmpl in DOCUMENT_TEMPLATES.items():
+            assert "concepts" in tmpl, f"{doc_type}: missing 'concepts'"
+            assert "relations" in tmpl, f"{doc_type}: missing 'relations'"
+            assert "instructions" in tmpl, f"{doc_type}: missing 'instructions'"
+            for concept in tmpl["concepts"]:
+                assert "type" in concept and "description" in concept, \
+                    f"{doc_type}: concept missing type or description: {concept}"
+                assert concept["description"] != f"{concept['type']} entity", \
+                    f"{doc_type}: concept '{concept['type']}' still has placeholder description"
+            for rel in tmpl["relations"]:
+                assert "relation" in rel and "source" in rel and "target" in rel, \
+                    f"{doc_type}: relation missing relation/source/target: {rel}"
+                # source/target must not be generic 'Entity' (except general fallback)
+                assert rel["source"] != "Entity" or doc_type == "general", \
+                    f"{doc_type}: relation '{rel['relation']}' has generic source 'Entity'"
+
+    def test_prompt_contains_entity_descriptions(self):
+        """_build_extraction_prompt should include entity descriptions in output."""
+        http_client = FakeHttpClient({"choices": [{"message": {"content": "{}"}}]})
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
+        ontology = extractor._get_ontology("academic_paper")
+        prompt = extractor._build_extraction_prompt("sample text", ontology, "academic_paper")
+        assert "Researcher" in prompt
+        assert "NOT institutions" in prompt          # description text included
+        assert "PROPOSES" in prompt
+        assert "Paper → Method" in prompt            # source→target constraint included
+        assert "Extraction Instructions" in prompt
 
 
 # ---------------------------------------------------------------------------
