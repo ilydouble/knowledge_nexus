@@ -102,6 +102,10 @@ class DeterministicEmbeddingService:
             raise ValueError("dimensions must be positive")
         self.dimensions = dimensions
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of texts (mirrors BigModelEmbeddingService.embed_batch)."""
+        return [self.embed(t) for t in texts]
+
     def embed(self, text: str) -> list[float]:
         vector = [0.0] * self.dimensions
         tokens = re.findall(r"[A-Za-z0-9_-]+", text.lower())

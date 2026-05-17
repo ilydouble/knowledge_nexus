@@ -314,26 +314,33 @@ class SemanticPipeline:
                         entity_uri_map[target_id],
                     )
         
-        # Store chunks in Milvus
+        # Store chunks in Milvus — batch-embed all chunks in one API call
         if self.milvus_store:
-            chunks_to_store = []
-            for i, chunk_text in enumerate(parsed.chunks):
-                if not chunk_text.strip():
-                    continue
-                
-                vector = self.embedding_service.embed(chunk_text)
-                chunk = MilvusChunk(
-                    chunk_id=f"{uri}#chunk-{i}",
-                    uri=uri,
-                    text=chunk_text[:2000],  # Milvus text field limit (chunks are ~1000 chars)
-                    created_by=requested_by,
-                    visibility="team",
-                    vector=vector,
-                )
-                chunks_to_store.append(chunk)
-            
-            if chunks_to_store:
+            # Filter empty chunks first to avoid wasting embed quota
+            valid_chunks = [
+                (i, t) for i, t in enumerate(parsed.chunks) if t.strip()
+            ]
+            if valid_chunks:
+                texts = [t for _, t in valid_chunks]
+                # embed_batch splits internally at MAX_BATCH_SIZE (64); one call per ≤64 texts
+                vectors = self.embedding_service.embed_batch(texts)
+                chunks_to_store = [
+                    MilvusChunk(
+                        chunk_id=f"{uri}#chunk-{i}",
+                        uri=uri,
+                        text=t[:2000],  # Milvus text field limit (chunks are ~1000 chars)
+                        created_by=requested_by,
+                        visibility="team",
+                        vector=v,
+                    )
+                    for (i, t), v in zip(valid_chunks, vectors)
+                ]
                 self.milvus_store.upsert_chunks(chunks_to_store)
+                logger.debug(
+                    "Embedded %d chunks for %s (%d API calls)",
+                    len(chunks_to_store), uri,
+                    -(-len(texts) // 64),  # ceil(n/64)
+                )
     
     def close(self) -> None:
         """Close connections."""
