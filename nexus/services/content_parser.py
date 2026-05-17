@@ -60,11 +60,16 @@ class TextParser(BaseParser):
         return mime_type in self.SUPPORTED_TYPES or ext in self.SUPPORTED_EXTENSIONS
 
     @staticmethod
-    def _chunk(text: str, chunk_size: int = 8000, overlap: int = 400) -> list[str]:
-        """Split text into overlapping chunks."""
+    def _chunk(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[str]:
+        """Split text into overlapping chunks for vector indexing.
+
+        chunk_size is intentionally smaller than the LLM extraction segment
+        (8 000 chars) so that each retrieved snippet is focused and precise.
+        One LLM segment ≈ 8 vector chunks, guaranteeing full coverage.
+        """
         if len(text) <= chunk_size:
             return [text] if text.strip() else []
-        
+
         chunks = []
         start = 0
         while start < len(text):
@@ -110,8 +115,14 @@ class PDFParser(BaseParser):
         return mime_type in self.SUPPORTED_TYPES or ext in self.SUPPORTED_EXTENSIONS
     
     @staticmethod
-    def _chunk(text: str, chunk_size: int = 8000, overlap: int = 400) -> list[str]:
-        """Split text into overlapping chunks."""
+    def _chunk(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[str]:
+        """Split text into overlapping chunks for vector indexing.
+
+        chunk_size is intentionally smaller than the LLM extraction segment
+        (8 000 chars) so that each retrieved snippet is focused and precise.
+        One LLM segment ≈ 8 vector chunks, guaranteeing full coverage.
+        Attempts to break at paragraph boundaries to preserve sentence context.
+        """
         if len(text) <= chunk_size:
             return [text] if text.strip() else []
 

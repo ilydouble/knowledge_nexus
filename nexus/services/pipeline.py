@@ -314,7 +314,7 @@ class SemanticPipeline:
                 chunk = MilvusChunk(
                     chunk_id=f"{uri}#chunk-{i}",
                     uri=uri,
-                    text=chunk_text[:8000],  # Milvus text limit
+                    text=chunk_text[:2000],  # Milvus text field limit (chunks are ~1000 chars)
                     created_by=requested_by,
                     visibility="team",
                     vector=vector,

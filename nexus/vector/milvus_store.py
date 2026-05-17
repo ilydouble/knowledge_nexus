@@ -54,7 +54,7 @@ class MilvusVectorStore:
         fields = [
             FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=512),
             FieldSchema(name="uri", dtype=DataType.VARCHAR, max_length=1024),
-            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
+            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=2048),
             FieldSchema(name="created_by", dtype=DataType.VARCHAR, max_length=256),
             FieldSchema(name="visibility", dtype=DataType.VARCHAR, max_length=64),
             FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=self.dimensions),
