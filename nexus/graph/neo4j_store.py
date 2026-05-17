@@ -58,6 +58,39 @@ class Neo4jGraphStore:
             edges[edge.id] = edge
         return GraphResult(nodes=list(nodes.values()), edges=list(edges.values()))
 
+    def search_nodes(self, keyword: str, limit: int = 20) -> list[GraphNode]:
+        """Full-graph label search — matches entities and file nodes alike."""
+        with self.driver.session() as session:
+            records = session.execute_read(self._search_nodes_tx, keyword, limit)
+        return [self._node_from_neo4j(r["n"]) for r in records]
+
+    def list_file_nodes(self, limit: int = 100) -> list[GraphNode]:
+        """Return processed document nodes (exclude entity:// URI nodes)."""
+        with self.driver.session() as session:
+            records = session.execute_read(self._list_file_nodes_tx, limit)
+        return [self._node_from_neo4j(r["n"]) for r in records]
+
+    def list_entity_nodes(self, keyword: str = "", limit: int = 50) -> list[GraphNode]:
+        """Return entity nodes, optionally filtered by label keyword."""
+        with self.driver.session() as session:
+            records = session.execute_read(self._list_entity_nodes_tx, keyword, limit)
+        return [self._node_from_neo4j(r["n"]) for r in records]
+
+    def get_document_subgraph(self, uri: str) -> GraphResult:
+        """Return a document node + all entities it MENTIONS."""
+        with self.driver.session() as session:
+            records = session.execute_read(self._document_subgraph_tx, uri)
+        nodes: dict[str, GraphNode] = {}
+        edges: dict[str, GraphEdge] = {}
+        for record in records:
+            src = self._node_from_neo4j(record["source"])
+            tgt = self._node_from_neo4j(record["target"])
+            edge = self._edge_from_neo4j(record["edge"], src.id, tgt.id)
+            nodes[src.id] = src
+            nodes[tgt.id] = tgt
+            edges[edge.id] = edge
+        return GraphResult(nodes=list(nodes.values()), edges=list(edges.values()))
+
     def delete_by_uri_for_tests(self, uri: str) -> None:
         with self.driver.session() as session:
             session.run("MATCH (n:NexusFile {uri: $uri}) DETACH DELETE n", uri=uri)
@@ -131,6 +164,70 @@ class Neo4jGraphStore:
             RETURN source, edge, target
             ORDER BY edge.id
             """
+        )
+        return list(result)
+
+    @staticmethod
+    def _search_nodes_tx(tx, keyword: str, limit: int):
+        result = tx.run(
+            """
+            MATCH (n:NexusFile)
+            WHERE toLower(n.label) CONTAINS toLower($keyword)
+            RETURN n
+            ORDER BY n.label
+            LIMIT $limit
+            """,
+            keyword=keyword, limit=limit,
+        )
+        return list(result)
+
+    @staticmethod
+    def _list_file_nodes_tx(tx, limit: int):
+        result = tx.run(
+            """
+            MATCH (n:NexusFile)
+            WHERE NOT n.uri STARTS WITH 'entity://'
+            RETURN n
+            ORDER BY n.label
+            LIMIT $limit
+            """,
+            limit=limit,
+        )
+        return list(result)
+
+    @staticmethod
+    def _list_entity_nodes_tx(tx, keyword: str, limit: int):
+        if keyword:
+            result = tx.run(
+                """
+                MATCH (n:NexusFile)
+                WHERE n.uri STARTS WITH 'entity://'
+                  AND toLower(n.label) CONTAINS toLower($keyword)
+                RETURN n ORDER BY n.label LIMIT $limit
+                """,
+                keyword=keyword, limit=limit,
+            )
+        else:
+            result = tx.run(
+                """
+                MATCH (n:NexusFile)
+                WHERE n.uri STARTS WITH 'entity://'
+                RETURN n ORDER BY n.label LIMIT $limit
+                """,
+                limit=limit,
+            )
+        return list(result)
+
+    @staticmethod
+    def _document_subgraph_tx(tx, uri: str):
+        result = tx.run(
+            """
+            MATCH (source:NexusFile)-[edge:NEXUS_RELATION]->(target:NexusFile)
+            WHERE source.uri = $uri OR target.uri = $uri
+            RETURN source, edge, target
+            ORDER BY edge.relation
+            """,
+            uri=uri,
         )
         return list(result)
 
