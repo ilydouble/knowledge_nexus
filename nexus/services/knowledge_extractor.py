@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from nexus.services.template_adapter import HyperExtractTemplateAdapter
 from nexus.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -518,15 +519,26 @@ Rules:
             return summaries[0]
 
     def _get_ontology(self, doc_type: str) -> dict:
-        """Return the pre-defined rich ontology for *doc_type*.
+        """Return the ontology for *doc_type*, preferring Hyper-Extract template
+        adaptation over the built-in DOCUMENT_TEMPLATES when available.
 
-        Each entry in DOCUMENT_TEMPLATES contains:
-        - ``concepts``: list of {type, description} — precise type boundaries
-        - ``relations``: list of {relation, source, target, description} — constrained edges
-        - ``instructions``: extraction guidance injected into the prompt
+        Resolution order:
+        1. Hyper-Extract template adapter (type: graph only) → fully adapted ontology.
+        2. DOCUMENT_TEMPLATES built-in entry → used for non-graph template types
+           (hypergraph, temporal_graph, …) or when the adapter finds no template.
+        3. DEFAULT_ONTOLOGY → final fallback for unknown doc types.
 
-        Falls back to DEFAULT_ONTOLOGY for unknown / 'general' types.
+        Each returned dict contains:
+        - ``concepts``: list of {type, description}
+        - ``relations``: list of {relation, source, target, description}
+        - ``instructions``: extraction guidance string
         """
+        adapter = HyperExtractTemplateAdapter()
+        result = adapter.adapt(doc_type)
+        if result is not None and not result.is_native_fallback:
+            logger.debug("Using Hyper-Extract template ontology for doc_type=%s", doc_type)
+            return result.ontology
+
         if doc_type in DOCUMENT_TEMPLATES:
             return DOCUMENT_TEMPLATES[doc_type]
         return DEFAULT_ONTOLOGY

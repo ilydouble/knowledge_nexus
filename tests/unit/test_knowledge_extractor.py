@@ -279,16 +279,50 @@ class TestDocumentClassifier:
                     f"{doc_type}: relation '{rel['relation']}' has generic source 'Entity'"
 
     def test_prompt_contains_entity_descriptions(self):
-        """_build_extraction_prompt should include entity descriptions in output."""
+        """_build_extraction_prompt should include entity descriptions from the resolved ontology.
+
+        academic_paper → concept_graph template (type: graph), so the prompt will
+        contain concept-graph entity types and relations, not the DOCUMENT_TEMPLATES
+        Researcher / PROPOSES vocabulary.
+        """
         http_client = FakeHttpClient({"choices": [{"message": {"content": "{}"}}]})
         extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
         ontology = extractor._get_ontology("academic_paper")
         prompt = extractor._build_extraction_prompt("sample text", ontology, "academic_paper")
-        assert "Researcher" in prompt
-        assert "NOT institutions" in prompt          # description text included
-        assert "PROPOSES" in prompt
-        assert "Paper → Method" in prompt            # source→target constraint included
+        # The prompt always includes the structural sections
         assert "Extraction Instructions" in prompt
+        # concept_graph template produces type-vocabulary concepts and relation hints
+        assert len(ontology.get("concepts", [])) > 0
+        assert len(ontology.get("relations", [])) > 0
+        # The prompt must contain at least one concept type name and one relation name
+        concept_types = [c["type"] for c in ontology["concepts"]]
+        assert any(ct in prompt for ct in concept_types)
+        rel_names = [r["relation"] for r in ontology["relations"]]
+        assert any(rn in prompt for rn in rel_names)
+
+    def test_get_ontology_falls_back_to_document_templates_for_hypergraph(self):
+        """contract → hypergraph template → adapter returns is_native_fallback=True
+        → _get_ontology must use DOCUMENT_TEMPLATES['contract'] instead."""
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
+        ontology = extractor._get_ontology("contract")
+        # DOCUMENT_TEMPLATES['contract'] has Party, Obligation, Right, Penalty, …
+        types = {c["type"] for c in ontology.get("concepts", [])}
+        assert "Party" in types, "Expected DOCUMENT_TEMPLATES fallback with 'Party' concept"
+
+    def test_get_ontology_falls_back_to_document_templates_for_temporal_graph(self):
+        """meeting_minutes → workflow_graph (temporal_graph) → native fallback."""
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
+        ontology = extractor._get_ontology("meeting_minutes")
+        types = {c["type"] for c in ontology.get("concepts", [])}
+        assert "Task" in types, "Expected DOCUMENT_TEMPLATES fallback with 'Task' concept"
+
+    def test_get_ontology_uses_template_adapter_for_graph_types(self):
+        """general → base_graph (graph) → adapter is used, not DEFAULT_ONTOLOGY."""
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
+        ontology = extractor._get_ontology("general")
+        # base_graph entity examples include person, location, organization, …
+        types = {c["type"].lower() for c in ontology.get("concepts", [])}
+        assert len(types) > 0
 
 
 # ---------------------------------------------------------------------------

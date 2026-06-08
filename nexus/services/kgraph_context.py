@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from nexus.services.content_parser import ParsedContent
 from nexus.services.document_classifier import CATEGORIES, ClassificationResult
-from nexus.services.knowledge_extractor import DOCUMENT_TEMPLATES
+from nexus.services.knowledge_extractor import DEFAULT_ONTOLOGY, DOCUMENT_TEMPLATES
+from nexus.services.template_adapter import HyperExtractTemplateAdapter
 
 
 _PAGE_MARKER_RE = re.compile(r"---\s*Page\s+(\d+)\s*---", re.IGNORECASE)
@@ -49,7 +50,16 @@ class KGraphContextBuilder:
     ) -> dict[str, Any]:
         document_id = self._document_id(uri)
         ontology_id = classification.doc_type if classification.doc_type in DOCUMENT_TEMPLATES else "general"
-        ontology = DOCUMENT_TEMPLATES.get(ontology_id, {})
+
+        # Resolve ontology: prefer Hyper-Extract template adapter when graph-compatible.
+        adapter = HyperExtractTemplateAdapter()
+        adapter_result = adapter.adapt(classification.doc_type)
+        if adapter_result is not None and not adapter_result.is_native_fallback:
+            ontology = adapter_result.ontology
+        else:
+            ontology = DOCUMENT_TEMPLATES.get(ontology_id, DEFAULT_ONTOLOGY)
+        template_meta = adapter_result.template_meta if adapter_result is not None else {}
+
         entity_hints = [item["type"] for item in ontology.get("concepts", []) if item.get("type")]
         relation_hints = [item["relation"] for item in ontology.get("relations", []) if item.get("relation")]
 
@@ -75,6 +85,7 @@ class KGraphContextBuilder:
                 "confidence": classification.confidence,
                 "signals": classification.signals,
                 "should_extract": classification.strategy in {"llm_extract", "structural_summary"},
+                "template_meta": template_meta,
             },
             "sections": [
                 {

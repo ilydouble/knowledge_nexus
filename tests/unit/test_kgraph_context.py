@@ -1,6 +1,7 @@
 from nexus.services.content_parser import ParsedContent
 from nexus.services.document_classifier import DocumentClassifier
 from nexus.services.kgraph_context import KGraphContextBuilder
+from nexus.services.template_adapter import HyperExtractTemplateAdapter, TEMPLATE_MAP
 
 
 def test_context_builder_exports_traceable_kgraph_json_contract():
@@ -46,8 +47,21 @@ def test_context_builder_exports_traceable_kgraph_json_contract():
     assert section["source_span"]["page"] == 3
     assert section["source_span"]["start_char"] >= 0
     assert section["source_span"]["end_char"] > section["source_span"]["start_char"]
-    assert "Component" in section["entity_hints"]
-    assert "DEPENDS_ON" in section["relation_hints"]
+    # technical_doc → base_graph template (type: graph) — open entity/relation types
+    assert len(section["entity_hints"]) > 0
+    assert len(section["relation_hints"]) > 0
+    # base_graph entity type examples: person/location/organization/object/concept/
+    #   event/institution/technology/product/service
+    assert any(h in section["entity_hints"] for h in
+               ("Person", "Location", "Organization", "Technology", "Service", "Concept"))
+    # base_graph relation type examples: created/belongs_to/located_at/uses/affects/…
+    assert any(h in section["relation_hints"] for h in
+               ("CREATED", "BELONGS_TO", "USES", "AFFECTS", "RELATED_TO"))
+    # template_meta must be present and correctly identify the adapted template
+    assert "template_meta" in context["classification"]
+    meta = context["classification"]["template_meta"]
+    assert meta["name"] == "graph"   # base_graph template name is 'graph'
+    assert meta["type"] == "graph"
     assert context["metadata"]["published_at"] == "2026-06-01"
     assert context["metadata"]["version"] == "v2"
 
@@ -90,3 +104,83 @@ def test_context_builder_keeps_top_windows_and_drops_low_signal_chunks():
     assert "DataPipeline" in section_text
     assert "午餐安排" not in section_text
     assert "天气情况" not in section_text
+
+
+# ---------------------------------------------------------------------------
+# HyperExtractTemplateAdapter unit tests
+# ---------------------------------------------------------------------------
+
+class TestHyperExtractTemplateAdapter:
+    def setup_method(self):
+        self.adapter = HyperExtractTemplateAdapter()
+
+    def test_adapt_graph_type_returns_non_fallback(self):
+        """base_graph / concept_graph / doc_structure are type:graph → full adaptation."""
+        for doc_type in ("general", "report", "email", "academic_paper", "technical_doc"):
+            result = self.adapter.adapt(doc_type)
+            assert result is not None, f"{doc_type}: adapt() returned None"
+            assert not result.is_native_fallback, f"{doc_type}: expected full adaptation"
+            assert result.ontology.get("concepts"), f"{doc_type}: no concepts"
+            assert result.ontology.get("relations"), f"{doc_type}: no relations"
+            assert result.ontology.get("instructions"), f"{doc_type}: no instructions"
+
+    def test_adapt_hypergraph_returns_native_fallback(self):
+        """contract → hypergraph template → metadata-only, is_native_fallback=True."""
+        result = self.adapter.adapt("contract")
+        assert result is not None
+        assert result.is_native_fallback is True
+        assert result.ontology == {}
+        assert result.template_meta["name"] == "contract_obligation"
+        assert result.template_meta["type"] == "hypergraph"
+
+    def test_adapt_temporal_graph_returns_native_fallback(self):
+        """meeting_minutes → workflow_graph (temporal_graph) → metadata-only."""
+        result = self.adapter.adapt("meeting_minutes")
+        assert result is not None
+        assert result.is_native_fallback is True
+        assert result.template_meta["type"] == "temporal_graph"
+
+    def test_adapt_unknown_doc_type_returns_none(self):
+        result = self.adapter.adapt("tabular_data")
+        assert result is None
+
+    def test_adapt_general_concepts_and_relations(self):
+        """general → base_graph: open entity types, graph relations."""
+        result = self.adapter.adapt("general")
+        assert result is not None and not result.is_native_fallback
+        types = [c["type"] for c in result.ontology["concepts"]]
+        assert len(types) > 0
+        rel_names = [r["relation"] for r in result.ontology["relations"]]
+        assert len(rel_names) > 0
+
+    def test_adapt_academic_paper_concepts(self):
+        """academic_paper → concept_graph: concept-type vocabulary."""
+        result = self.adapter.adapt("academic_paper")
+        assert result is not None and not result.is_native_fallback
+        types = {c["type"] for c in result.ontology["concepts"]}
+        # concept_graph entity type field examples: entity/abstract/process/relation
+        assert any(t in types for t in ("Entity", "Abstract", "Process", "Relation"))
+
+    def test_adapt_technical_doc_uses_base_graph(self):
+        """technical_doc → base_graph (generic graph): open entity types."""
+        result = self.adapter.adapt("technical_doc")
+        assert result is not None and not result.is_native_fallback
+        types = {c["type"] for c in result.ontology["concepts"]}
+        # base_graph entity type examples: Person, Location, Organization, Technology, …
+        assert any(t in types for t in ("Person", "Location", "Organization", "Technology", "Service"))
+
+    def test_template_meta_contains_tracking_fields(self):
+        """template_meta must always expose name, type, tags, identifiers."""
+        result = self.adapter.adapt("general")
+        assert result is not None
+        meta = result.template_meta
+        assert "name" in meta and meta["name"] == "graph"
+        assert "type" in meta and meta["type"] == "graph"
+        assert "tags" in meta
+        assert "identifiers" in meta
+
+    def test_all_mapped_doc_types_resolve_a_template(self):
+        """Every entry in TEMPLATE_MAP must load successfully (templates on disk)."""
+        for doc_type in TEMPLATE_MAP:
+            result = self.adapter.adapt(doc_type)
+            assert result is not None, f"{doc_type}: adapt() returned None — template missing?"

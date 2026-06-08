@@ -17,6 +17,7 @@ dependencies = [
   "setuptools<81",
   "uvicorn>=0.34",
   "mcp[cli]>=1.0",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
