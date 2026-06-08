@@ -47,23 +47,53 @@ def test_context_builder_exports_traceable_kgraph_json_contract():
     assert section["source_span"]["page"] == 3
     assert section["source_span"]["start_char"] >= 0
     assert section["source_span"]["end_char"] > section["source_span"]["start_char"]
-    # technical_doc → base_graph template (type: graph) — open entity/relation types
+    # technical_doc keeps native ontology hints; template candidates are tracked separately.
     assert len(section["entity_hints"]) > 0
     assert len(section["relation_hints"]) > 0
-    # base_graph entity type examples: person/location/organization/object/concept/
-    #   event/institution/technology/product/service
-    assert any(h in section["entity_hints"] for h in
-               ("Person", "Location", "Organization", "Technology", "Service", "Concept"))
-    # base_graph relation type examples: created/belongs_to/located_at/uses/affects/…
-    assert any(h in section["relation_hints"] for h in
-               ("CREATED", "BELONGS_TO", "USES", "AFFECTS", "RELATED_TO"))
+    assert "Component" in section["entity_hints"]
+    assert "DEPENDS_ON" in section["relation_hints"]
     # template_meta must be present and correctly identify the adapted template
     assert "template_meta" in context["classification"]
     meta = context["classification"]["template_meta"]
     assert meta["name"] == "graph"   # base_graph template name is 'graph'
     assert meta["type"] == "graph"
+    assert context["classification"]["primary_template_id"] == "general/base_graph"
+    assert context["classification"]["primary_template_type"] == "graph"
+    assert context["classification"]["selected_templates"]
+    assert context["classification"]["selected_templates"][0]["template_id"] == "general/base_graph"
+    assert len(context["classification"]["selected_templates"][0]["template_hash"]) == 64
     assert context["metadata"]["published_at"] == "2026-06-01"
     assert context["metadata"]["version"] == "v2"
+
+
+def test_context_builder_keeps_native_technical_doc_hints_with_template_candidates():
+    parsed = ParsedContent(
+        text="AuthService 调用 POST /api/users，并将数据存储在 PostgreSQL。",
+        metadata={"filename": "api_design.md"},
+        chunks=["AuthService 调用 POST /api/users，并将数据存储在 PostgreSQL。"],
+        file_type="text",
+    )
+    classification = DocumentClassifier().classify(
+        "api_design.md",
+        content_preview=parsed.text,
+        file_type=parsed.file_type,
+    )
+
+    context = KGraphContextBuilder().build(
+        uri="cloudreve://team/api_design.md",
+        parsed=parsed,
+        classification=classification,
+        extraction_batch_id="batch-technical",
+    )
+
+    section = context["sections"][0]
+    template_ids = [
+        template["template_id"]
+        for template in context["classification"]["selected_templates"]
+    ]
+    assert "Component" in section["entity_hints"]
+    assert "DEPENDS_ON" in section["relation_hints"]
+    assert "general/base_graph" in template_ids
 
 
 def test_context_builder_keeps_top_windows_and_drops_low_signal_chunks():

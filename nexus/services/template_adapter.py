@@ -45,6 +45,39 @@ TEMPLATE_MAP: dict[str, str] = {
     "general":         "general/base_graph",         # type: graph ✓
 }
 
+#: Ordered candidate templates for kgraph input preparation. These are used for
+#: traceable template selection metadata, not as a guarantee that the extractor
+#: will replace its native ontology.
+DOC_TYPE_TEMPLATE_HINTS: dict[str, list[str]] = {
+    "academic_paper": ["general/concept_graph", "general/doc_structure"],
+    "technical_doc": [
+        "general/base_graph",
+        "general/doc_structure",
+        "industry/equipment_topology",
+        "industry/operation_flow",
+    ],
+    "meeting_minutes": ["general/workflow_graph", "industry/operation_flow"],
+    "report": ["finance/earnings_summary", "finance/event_timeline", "general/base_graph"],
+    "contract": [
+        "legal/contract_obligation",
+        "legal/defined_term_set",
+        "legal/compliance_list",
+        "legal/case_fact_timeline",
+    ],
+    "email": ["general/base_graph"],
+    "tabular_data": ["general/base_model", "general/base_list"],
+    "general": ["general/base_graph", "general/concept_graph"],
+}
+
+BUSINESS_DOMAIN_TAGS: dict[str, str] = {
+    "business": "finance",
+    "engineering": "industry",
+    "legal": "legal",
+    "healthcare": "medicine",
+    "medicine": "medicine",
+    "tcm": "tcm",
+}
+
 #: Only these Hyper-Extract graph types produce a fully-adapted ontology.
 _GRAPH_TYPES: frozenset[str] = frozenset({"graph"})
 
@@ -66,6 +99,41 @@ class TemplateRecord:
     language: list[str]
     description: str
     identifiers: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class TemplateSelection:
+    """Ranked template candidate for one document classification."""
+
+    template_id: str
+    name: str
+    template_type: str
+    tags: list[str]
+    relative_path: str
+    template_hash: str
+    description: str
+    identifiers: dict[str, Any]
+    score: float
+    reason: str
+    is_primary: bool
+    graph_compatible: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        """Serialize selection metadata for the kgraph context JSON contract."""
+        return {
+            "template_id": self.template_id,
+            "name": self.name,
+            "type": self.template_type,
+            "tags": self.tags,
+            "relative_path": self.relative_path,
+            "template_hash": self.template_hash,
+            "description": self.description,
+            "identifiers": self.identifiers,
+            "score": round(self.score, 3),
+            "reason": self.reason,
+            "is_primary": self.is_primary,
+            "graph_compatible": self.graph_compatible,
+        }
 
 
 @dataclass
@@ -162,6 +230,75 @@ class TemplateRegistry:
         except Exception as exc:
             logger.warning("Failed to load template %s: %s", path, exc)
             return None
+
+
+class TemplateSelector:
+    """Select ranked Hyper-Extract template candidates for a classified document."""
+
+    def __init__(self, registry: TemplateRegistry | None = None) -> None:
+        self._registry = registry or TemplateRegistry()
+
+    def select(
+        self,
+        doc_type: str,
+        *,
+        business_domain: str | None = None,
+        max_candidates: int = 5,
+    ) -> list[TemplateSelection]:
+        """Return ranked template candidates for kgraph input preparation."""
+        selected: list[TemplateSelection] = []
+        seen: set[str] = set()
+        explicit_ids = DOC_TYPE_TEMPLATE_HINTS.get(doc_type)
+        reason = "doc_type" if explicit_ids else "fallback"
+        candidate_ids = explicit_ids or DOC_TYPE_TEMPLATE_HINTS["general"]
+
+        for index, template_id in enumerate(candidate_ids):
+            record = self._registry.get(template_id)
+            if record is None:
+                continue
+            selected.append(self._selection_from_record(record, 1.0 - index * 0.08, reason, not selected))
+            seen.add(record.template_id)
+
+        domain_tag = BUSINESS_DOMAIN_TAGS.get(business_domain or "")
+        if domain_tag:
+            for index, record in enumerate(self._registry.list(filter_by_tag=domain_tag)):
+                if record.template_id in seen:
+                    continue
+                selected.append(
+                    self._selection_from_record(
+                        record,
+                        0.6 - min(index, 4) * 0.03,
+                        "business_domain",
+                        not selected,
+                    )
+                )
+                seen.add(record.template_id)
+                if len(selected) >= max_candidates:
+                    break
+
+        return selected[:max_candidates]
+
+    def _selection_from_record(
+        self,
+        record: TemplateRecord,
+        score: float,
+        reason: str,
+        is_primary: bool,
+    ) -> TemplateSelection:
+        return TemplateSelection(
+            template_id=record.template_id,
+            name=record.name,
+            template_type=record.template_type,
+            tags=record.tags,
+            relative_path=record.relative_path,
+            template_hash=record.template_hash,
+            description=record.description,
+            identifiers=record.identifiers,
+            score=max(score, 0.0),
+            reason=reason,
+            is_primary=is_primary,
+            graph_compatible=record.template_type in _GRAPH_TYPES,
+        )
 
 
 class HyperExtractTemplateAdapter:

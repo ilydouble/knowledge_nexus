@@ -1,4 +1,8 @@
-from nexus.services.template_adapter import HyperExtractTemplateAdapter, TemplateRegistry
+from nexus.services.template_adapter import (
+    HyperExtractTemplateAdapter,
+    TemplateRegistry,
+    TemplateSelector,
+)
 
 
 def test_registry_discovers_full_bundled_template_library():
@@ -49,3 +53,26 @@ def test_adapter_template_meta_includes_registry_tracking_fields():
     assert result.template_meta["template_id"] == "general/base_graph"
     assert result.template_meta["relative_path"] == "general/base_graph.yaml"
     assert len(result.template_meta["template_hash"]) == 64
+
+
+def test_selector_returns_ranked_doc_type_candidates():
+    selector = TemplateSelector()
+
+    selections = selector.select("contract", max_candidates=4)
+
+    assert selections
+    assert selections[0].template_id == "legal/contract_obligation"
+    assert selections[0].template_type == "hypergraph"
+    assert selections[0].is_primary is True
+    assert any(selection.template_id == "legal/defined_term_set" for selection in selections)
+    assert all(selection.template_hash for selection in selections)
+
+
+def test_selector_falls_back_to_general_template_for_unknown_doc_type():
+    selector = TemplateSelector()
+
+    selections = selector.select("unknown_doc_type", max_candidates=2)
+
+    assert selections
+    assert selections[0].template_id == "general/base_graph"
+    assert selections[0].reason == "fallback"

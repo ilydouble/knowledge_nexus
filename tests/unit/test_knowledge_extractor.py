@@ -324,6 +324,19 @@ class TestDocumentClassifier:
         types = {c["type"].lower() for c in ontology.get("concepts", [])}
         assert len(types) > 0
 
+    def test_get_ontology_keeps_native_technical_doc_template(self):
+        """Template selection metadata must not replace the richer native technical ontology."""
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
+
+        ontology = extractor._get_ontology("technical_doc")
+
+        types = {c["type"] for c in ontology.get("concepts", [])}
+        relations = {r["relation"] for r in ontology.get("relations", [])}
+        assert "Component" in types
+        assert "API" in types
+        assert "DEPENDS_ON" in relations
+        assert "CALLS" in relations
+
 
 # ---------------------------------------------------------------------------
 # KnowledgeExtractor tabular path

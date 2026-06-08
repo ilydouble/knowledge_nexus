@@ -533,14 +533,15 @@ Rules:
         - ``relations``: list of {relation, source, target, description}
         - ``instructions``: extraction guidance string
         """
+        if doc_type in DOCUMENT_TEMPLATES:
+            return DOCUMENT_TEMPLATES[doc_type]
+
         adapter = HyperExtractTemplateAdapter()
         result = adapter.adapt(doc_type)
         if result is not None and not result.is_native_fallback:
             logger.debug("Using Hyper-Extract template ontology for doc_type=%s", doc_type)
             return result.ontology
 
-        if doc_type in DOCUMENT_TEMPLATES:
-            return DOCUMENT_TEMPLATES[doc_type]
         return DEFAULT_ONTOLOGY
     
     def _get_system_prompt(self) -> str:
