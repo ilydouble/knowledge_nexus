@@ -9,14 +9,18 @@ from nexus.services.pipeline import SemanticPipeline
 class FakeCloudreveClient:
     def get_file_content_sync(self, uri):
         assert uri == "cloudreve://my/demo.md"
-        return b"# Demo\n\nKnowledge Nexus semantic pipeline."
+        return b"# Demo API architecture\n\nKnowledge Nexus semantic pipeline schema."
 
 
 class FakeExtractor:
+    def __init__(self):
+        self.calls = []
+
     def get_document_type_suggestions(self, filename, text_preview):
         return "technical_doc"
 
     def extract(self, text, doc_type, ontology=None, strategy="llm_extract"):
+        self.calls.append({"text": text, "doc_type": doc_type, "strategy": strategy})
         # doc_type is now set by DocumentClassifier, not FakeExtractor
         return ExtractedKnowledge(
             summary="Demo summary",
@@ -36,7 +40,8 @@ def test_semantic_pipeline_stores_processed_document_in_repository():
         enable_milvus=False,
     )
     pipeline.cloudreve_client = FakeCloudreveClient()
-    pipeline.knowledge_extractor = FakeExtractor()
+    extractor = FakeExtractor()
+    pipeline.knowledge_extractor = extractor
 
     result = pipeline.process_file("cloudreve://my/demo.md", requested_by="user-1")
 
@@ -48,6 +53,42 @@ def test_semantic_pipeline_stores_processed_document_in_repository():
     assert document.entities == ["Nexus"]
     assert document.requested_by == "user-1"
     assert document.chunks
+    assert result.kgraph_context["source_id"] == "cloudreve://my/demo.md"
+    assert result.kgraph_context["classification"]["doc_type"] == "technical_doc"
+    assert extractor.calls[0]["text"].startswith("[doc_")
+
+
+class MixedSignalCloudreveClient:
+    def get_file_content_sync(self, uri):
+        return (
+            b"Lunch logistics and office notice.\n\n"
+            b"AuthService calls POST /api/users and stores profiles in PostgreSQL.\n\n"
+            b"Weather update for the office.\n\n"
+            b"DataPipeline depends on Redis and returns UserProfile."
+        )
+
+
+def test_semantic_pipeline_extracts_from_filtered_kgraph_context():
+    repository = InMemoryRepository()
+    pipeline = SemanticPipeline(
+        cloudreve_token=None,
+        repository=repository,
+        enable_neo4j=False,
+        enable_milvus=False,
+    )
+    pipeline.cloudreve_client = MixedSignalCloudreveClient()
+    extractor = FakeExtractor()
+    pipeline.knowledge_extractor = extractor
+
+    result = pipeline.process_file("cloudreve://my/api_design.md", requested_by="user-1")
+
+    extracted_text = extractor.calls[0]["text"]
+    assert result.success is True
+    assert "AuthService" in extracted_text
+    assert "DataPipeline" in extracted_text
+    assert "Lunch logistics" not in extracted_text
+    assert "Weather update" not in extracted_text
+    assert result.kgraph_context["sections"]
 
 
 

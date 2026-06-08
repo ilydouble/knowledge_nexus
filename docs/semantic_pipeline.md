@@ -5,7 +5,7 @@
 The semantic processing pipeline handles the complete flow from file upload to knowledge extraction and storage.
 
 ```
-Cloudreve Upload → SSE Event → Worker → Download → Parse → Extract → Store
+Cloudreve Upload → SSE Event → Worker → Download → Parse → Classify → Build kgraph context → Extract → Store
 ```
 
 ## Architecture
@@ -70,7 +70,63 @@ class ParsedContent:
     file_type: str      # Detected file type
 ```
 
-### 2. Knowledge Extractor (`nexus/services/knowledge_extractor.py`)
+### 2. Document Classifier (`nexus/services/document_classifier.py`)
+
+Classifies each parsed file before graph extraction.
+
+**Output:**
+- `doc_type`: business/document category such as `technical_doc`, `meeting_minutes`, `report`, or `contract`
+- `strategy`: `llm_extract` or `structural_summary`
+- `confidence` and `signals`: traceable reasons for the decision
+
+The classifier decides which ontology family and extraction strategy should be used. It does not merge entities across documents.
+
+### 3. KGraph Context Builder (`nexus/services/kgraph_context.py`)
+
+Builds the structured JSON contract handed to downstream graph extraction. This is the pre-filtering layer: it keeps high-signal sections/windows and preserves enough provenance for later replay, audit, and cross-document merge work.
+
+**Output shape:**
+```json
+{
+  "document_id": "doc_<stable_hash>",
+  "source_id": "cloudreve://team/document.md",
+  "extraction_batch_id": "<uuid>",
+  "classification": {
+    "doc_type": "technical_doc",
+    "business_domain": "engineering",
+    "ontology_id": "technical_doc",
+    "strategy": "llm_extract",
+    "confidence": 0.83,
+    "signals": ["filename:api→technical_doc"],
+    "should_extract": true
+  },
+  "sections": [
+    {
+      "section_id": "doc_<stable_hash>_section_1",
+      "title": "Page 3",
+      "relevance_score": 0.92,
+      "text": "...",
+      "source_span": {
+        "page": 3,
+        "start_char": 120,
+        "end_char": 850
+      },
+      "entity_hints": ["Component", "API", "Database"],
+      "relation_hints": ["DEPENDS_ON", "CALLS", "STORES_IN"]
+    }
+  ],
+  "metadata": {
+    "published_at": null,
+    "valid_from": null,
+    "valid_to": null,
+    "version": null
+  }
+}
+```
+
+The context builder intentionally does not solve cross-document entity merging. It only reserves `document_id`, `source_id`, `extraction_batch_id`, source spans, timestamps, and version metadata so a later disambiguation or graph-maintenance stage can merge evidence safely.
+
+### 4. Knowledge Extractor (`nexus/services/knowledge_extractor.py`)
 
 Extracts structured knowledge from text using LLM and knowledge-graph skill.
 
@@ -92,17 +148,19 @@ class ExtractedKnowledge:
     confidence: float
 ```
 
-### 3. Semantic Pipeline (`nexus/services/pipeline.py`)
+### 5. Semantic Pipeline (`nexus/services/pipeline.py`)
 
 Coordinates the complete processing flow.
 
 **Flow:**
 1. Download file from Cloudreve
 2. Parse content based on file type
-3. Extract knowledge using LLM
-4. Store in Neo4j (graph) and Milvus (vectors)
+3. Classify document type and extraction strategy
+4. Build compact kgraph context with relevant sections and provenance
+5. Extract knowledge from the filtered context using LLM
+6. Store in Neo4j (graph) and Milvus (vectors)
 
-### 4. Worker (`nexus/worker.py`)
+### 6. Worker (`nexus/worker.py`)
 
 Listens for Cloudreve SSE events and triggers processing.
 

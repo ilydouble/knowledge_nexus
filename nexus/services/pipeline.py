@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -16,6 +16,7 @@ from nexus.services.content_parser import ContentParserService, ParsedContent
 from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
 from nexus.services.document_classifier import DocumentClassifier
 from nexus.services.file_gate import FileGate
+from nexus.services.kgraph_context import KGraphContextBuilder
 from nexus.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
 from nexus.settings import Settings
 from nexus.vector.milvus_store import MilvusChunk, MilvusVectorStore
@@ -41,6 +42,7 @@ class ProcessingResult:
     processing_time_ms: int = 0
     skipped: bool = False
     skip_reason: str | None = None
+    kgraph_context: dict[str, Any] = field(default_factory=dict)
 
 
 class SemanticPipeline:
@@ -65,6 +67,7 @@ class SemanticPipeline:
         self.cloudreve_client = CloudreveClient(token=cloudreve_token)
         self.file_gate = FileGate()
         self.document_classifier = DocumentClassifier()
+        self.kgraph_context_builder = KGraphContextBuilder()
         self.content_parser = ContentParserService()
         self.knowledge_extractor = KnowledgeExtractor(
             api_key=self.settings.zhipu_api_key or self.settings.openai_api_key,
@@ -162,6 +165,13 @@ class SemanticPipeline:
             )
             if doc_type is None:
                 doc_type = classification.doc_type
+                effective_classification = classification
+            else:
+                effective_classification = replace(
+                    classification,
+                    doc_type=doc_type,
+                    signals=[*classification.signals, f"override:doc_type={doc_type}"],
+                )
             strategy = classification.strategy
             logger.info(
                 "Classified '%s' → type=%s strategy=%s confidence=%.2f signals=%s",
@@ -169,10 +179,19 @@ class SemanticPipeline:
                 classification.signals[:3],
             )
 
+            kgraph_context = self.kgraph_context_builder.build(
+                uri=uri,
+                parsed=parsed,
+                classification=effective_classification,
+            )
+            extraction_text = self.kgraph_context_builder.render_for_extraction(kgraph_context)
+            if not extraction_text.strip():
+                extraction_text = parsed.text
+
             # Step 3: Extract knowledge
             stage = "semantic_extract"
             logger.info(f"Extracting knowledge (type: {doc_type}, strategy: {strategy})")
-            knowledge = self._extract_knowledge(parsed.text, doc_type, strategy)
+            knowledge = self._extract_knowledge(extraction_text, doc_type, strategy)
             
             # Step 4: Store in databases
             stage = "persist"
@@ -192,6 +211,7 @@ class SemanticPipeline:
                 chunks_count=len(parsed.chunks),
                 stage="persist",
                 processing_time_ms=processing_time,
+                kgraph_context=kgraph_context,
             )
         
         except Exception as e:
