@@ -3,7 +3,11 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import GraphView from "./GraphView.jsx";
 
-const API_BASE = import.meta.env.VITE_NEXUS_API_BASE || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_NEXUS_API_BASE || "";
+const DEFAULT_OAUTH_REDIRECT_URI = new URL(
+  "/api/auth/cloudreve/callback",
+  API_BASE || window.location.origin,
+).toString();
 
 async function requestJson(path, options) {
   const response = await fetch(`${API_BASE}${path}`, options);
@@ -164,10 +168,31 @@ function App() {
     }
   }
 
-  function authorizeCloudreve() {
+  async function authorizeCloudreve() {
     if (!authConfig.configured) {
       setMessage("请先在 Cloudreve 管理面板创建 OAuth App，并在这里保存 Client ID / Secret。");
       return;
+    }
+    if (authConfig.redirect_uri !== DEFAULT_OAUTH_REDIRECT_URI) {
+      setBusy(true);
+      setMessage("");
+      try {
+        const nextConfig = await requestJson("/api/auth/cloudreve/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cloudreve_base_url: authConfig.cloudreve_base_url || "http://localhost:5212",
+            redirect_uri: DEFAULT_OAUTH_REDIRECT_URI,
+            scope: "openid profile offline_access Files.Read",
+          }),
+        });
+        setAuthConfig(nextConfig);
+      } catch (error) {
+        setMessage(error.message);
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
     }
     window.location.assign(`${API_BASE}/api/auth/cloudreve/start`);
   }
@@ -183,7 +208,7 @@ function App() {
           cloudreve_base_url: authConfig.cloudreve_base_url || "http://localhost:5212",
           client_id: oauthClientId,
           client_secret: oauthClientSecret,
-          redirect_uri: authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback",
+          redirect_uri: DEFAULT_OAUTH_REDIRECT_URI,
           scope: "openid profile offline_access Files.Read",
         }),
       });
@@ -627,7 +652,10 @@ function App() {
           <div className="oauthSetup">
             <strong>{authConfig.configured ? "OAuth App 已配置" : "OAuth App 未配置"}</strong>
             {authConfig.client_id ? <small>Client ID: {authConfig.client_id}</small> : null}
-            <small>Redirect URI: {authConfig.redirect_uri || "http://localhost:8000/api/auth/cloudreve/callback"}</small>
+            <small>Redirect URI: {authConfig.redirect_uri || DEFAULT_OAUTH_REDIRECT_URI}</small>
+            {authConfig.configured && authConfig.redirect_uri !== DEFAULT_OAUTH_REDIRECT_URI ? (
+              <small className="warningText">将于下次授权前更新为：{DEFAULT_OAUTH_REDIRECT_URI}</small>
+            ) : null}
             <small>Scope: openid profile offline_access Files.Read</small>
             {authConfig.configured && !editingOAuthConfig ? (
               <button className="miniButton" onClick={() => setEditingOAuthConfig(true)} disabled={busy}>更新 OAuth 配置</button>

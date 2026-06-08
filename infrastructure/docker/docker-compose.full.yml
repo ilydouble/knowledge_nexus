@@ -75,7 +75,7 @@ services:
       context: ../..
       dockerfile: apps/web/Dockerfile
     environment:
-      VITE_NEXUS_API_BASE: http://localhost:8000
+      NEXUS_API_PROXY_TARGET: http://nexus-api:8000
     ports:
       - "5173:5173"
     depends_on:
@@ -87,4 +87,3 @@ volumes:
   postgres_data:
   neo4j_data:
   qdrant_data:
-

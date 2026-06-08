@@ -250,6 +250,10 @@ textarea.question {
   color: #9f1d1d !important;
 }
 
+.warningText {
+  color: #9a4b13 !important;
+}
+
 .listItem.active {
   border-color: #1f4f7a;
   background: #edf5fb;
