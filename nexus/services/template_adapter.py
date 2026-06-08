@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,22 @@ _GRAPH_TYPES: frozenset[str] = frozenset({"graph"})
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class TemplateRecord:
+    """Indexed metadata for one bundled Hyper-Extract template."""
+
+    template_id: str
+    path: Path
+    relative_path: str
+    template_hash: str
+    name: str
+    template_type: str
+    tags: list[str]
+    language: list[str]
+    description: str
+    identifiers: dict[str, Any]
+
+
 @dataclass
 class OntologyResult:
     """Outcome of adapting one Hyper-Extract template.
@@ -72,11 +89,87 @@ class OntologyResult:
 # Adapter
 # ---------------------------------------------------------------------------
 
-class HyperExtractTemplateAdapter:
-    """Load and adapt a Hyper-Extract YAML preset to knowledge_nexus ontology format."""
+class TemplateRegistry:
+    """Discover and index bundled Hyper-Extract YAML templates."""
 
     def __init__(self, templates_dir: Path | None = None) -> None:
         self._dir = templates_dir or TEMPLATES_DIR
+        self._records: dict[str, TemplateRecord] | None = None
+
+    def list(
+        self,
+        *,
+        filter_by_type: str | None = None,
+        filter_by_tag: str | None = None,
+        filter_by_language: str | None = None,
+    ) -> list[TemplateRecord]:
+        """Return discovered templates, optionally filtered by common metadata."""
+        records = list(self._scan().values())
+        if filter_by_type is not None:
+            records = [record for record in records if record.template_type == filter_by_type]
+        if filter_by_tag is not None:
+            records = [record for record in records if filter_by_tag in record.tags]
+        if filter_by_language is not None:
+            records = [record for record in records if filter_by_language in record.language]
+        return sorted(records, key=lambda record: record.template_id)
+
+    def get(self, template_id: str) -> TemplateRecord | None:
+        """Return one template record by id such as ``general/base_graph``."""
+        return self._scan().get(template_id)
+
+    def load(self, template_id: str) -> dict[str, Any] | None:
+        """Load the YAML config for one indexed template."""
+        record = self.get(template_id)
+        if record is None:
+            return None
+        return self._load_yaml(record.path)
+
+    def _scan(self) -> dict[str, TemplateRecord]:
+        if self._records is not None:
+            return self._records
+
+        records: dict[str, TemplateRecord] = {}
+        if not self._dir.exists():
+            self._records = records
+            return records
+
+        for path in sorted(self._dir.rglob("*.yaml")):
+            raw = self._load_yaml(path)
+            if not isinstance(raw, dict):
+                continue
+            relative_path = path.relative_to(self._dir).as_posix()
+            template_id = str(Path(relative_path).with_suffix("")).replace("\\", "/")
+            records[template_id] = TemplateRecord(
+                template_id=template_id,
+                path=path,
+                relative_path=relative_path,
+                template_hash=hashlib.sha256(path.read_bytes()).hexdigest(),
+                name=str(raw.get("name", "")),
+                template_type=str(raw.get("type", "graph")),
+                tags=list(raw.get("tags", [])),
+                language=list(raw.get("language", [])),
+                description=HyperExtractTemplateAdapter._en(raw.get("description", {})),
+                identifiers=dict(raw.get("identifiers", {})),
+            )
+
+        self._records = records
+        return records
+
+    def _load_yaml(self, path: Path) -> dict[str, Any] | None:
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                return yaml.safe_load(fh)
+        except Exception as exc:
+            logger.warning("Failed to load template %s: %s", path, exc)
+            return None
+
+
+class HyperExtractTemplateAdapter:
+    """Load and adapt a Hyper-Extract YAML preset to knowledge_nexus ontology format."""
+
+    def __init__(self, templates_dir: Path | None = None, registry: TemplateRegistry | None = None) -> None:
+        self._dir = templates_dir or TEMPLATES_DIR
+        self._registry = registry or TemplateRegistry(self._dir)
 
     # ------------------------------------------------------------------
     # Public API
@@ -89,12 +182,16 @@ class HyperExtractTemplateAdapter:
         if rel_path is None:
             return None
 
-        yaml_path = self._dir / f"{rel_path}.yaml"
-        raw = self._load_yaml(yaml_path)
+        record = self._registry.get(rel_path)
+        if record is None:
+            logger.debug("Template YAML not found: %s", rel_path)
+            return None
+
+        raw = self._registry.load(record.template_id)
         if raw is None:
             return None
 
-        meta = self._extract_meta(raw)
+        meta = self._extract_meta(raw, record)
         graph_type: str = raw.get("type", "graph")
 
         if graph_type not in _GRAPH_TYPES:
@@ -126,8 +223,16 @@ class HyperExtractTemplateAdapter:
             logger.warning("Failed to load template %s: %s", path, exc)
             return None
 
-    def _extract_meta(self, raw: dict) -> dict[str, Any]:
+    def _extract_meta(self, raw: dict, record: TemplateRecord | None = None) -> dict[str, Any]:
+        tracking = {}
+        if record is not None:
+            tracking = {
+                "template_id": record.template_id,
+                "relative_path": record.relative_path,
+                "template_hash": record.template_hash,
+            }
         return {
+            **tracking,
             "name": raw.get("name", ""),
             "type": raw.get("type", "graph"),
             "tags": raw.get("tags", []),
