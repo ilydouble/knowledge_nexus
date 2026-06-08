@@ -23,6 +23,7 @@ from nexus.repositories.base import NexusRepository
 from nexus.repositories.memory import InMemoryRepository
 from nexus.repositories.postgres import PostgresRepository
 from nexus.services.autolinker import AutoLinker
+from nexus.services.doc_linker import DocLinker
 from nexus.services.scanner import CloudreveScanner
 from nexus.services.graphrag import GraphRagService
 from nexus.services.ingestion import IngestionService
@@ -245,6 +246,30 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             }
             for document in documents
         ]
+
+    @app.post("/api/documents/link")
+    def link_documents(
+        min_shared_entities: int = 1,
+        repository: NexusRepository = Depends(get_repository),
+    ) -> dict[str, Any]:
+        results = DocLinker(repository=repository, settings=app_settings).find_and_link_all(
+            min_shared_entities=max(1, min_shared_entities)
+        )
+        return {
+            "created_count": len(results),
+            "links": [
+                {
+                    "source_uri": result.uri_a,
+                    "target_uri": result.uri_b,
+                    "relation": result.relation,
+                    "confidence": result.confidence,
+                    "reasoning": result.reasoning,
+                    "shared_entities": result.shared_entities,
+                    "direction": result.direction,
+                }
+                for result in results
+            ],
+        }
 
     @app.post("/api/ingestion/demo-index")
     def demo_index(payload: dict[str, str], repository: NexusRepository = Depends(get_repository)):

@@ -5,7 +5,7 @@
 The semantic processing pipeline handles the complete flow from file upload to knowledge extraction and storage.
 
 ```
-Cloudreve Upload → SSE Event → Worker → Download → Parse → Classify → Build kgraph context → Extract → Store
+Cloudreve Upload → SSE Event → Worker → Download → Parse → Classify → Build kgraph context → Extract → Store → Link documents on demand
 ```
 
 ## Architecture
@@ -160,7 +160,21 @@ Coordinates the complete processing flow.
 5. Extract knowledge from the filtered context using LLM
 6. Store in Neo4j (graph) and Milvus (vectors)
 
-### 6. Worker (`nexus/worker.py`)
+### 6. DocLinker (`nexus/services/doc_linker.py`)
+
+Creates document-to-document links after documents have already been processed. It compares extracted entity lists, finds document pairs with enough shared entities, and writes a `KnowledgeLink` through the repository.
+
+Default behavior is deterministic and local: shared entities produce a `相似` link with the shared entities recorded in the note. The service also supports optional LLM relationship typing when an API key and HTTP client are provided, using the relation set `引用` / `补充` / `扩展` / `冲突` / `相似`.
+
+Manual trigger:
+
+```bash
+curl -X POST "http://localhost:8000/api/documents/link?min_shared_entities=1"
+```
+
+DocLinker is a graph-maintenance step, not part of the per-document extraction path. It can be run on demand after ingestion or scheduled later.
+
+### 7. Worker (`nexus/worker.py`)
 
 Listens for Cloudreve SSE events and triggers processing.
 

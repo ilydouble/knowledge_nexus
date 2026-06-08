@@ -598,3 +598,32 @@ def test_demo_index_endpoint_populates_file_knowledge_and_suggestions():
     assert body["summary"] == "Infrared sensor thermal calibration."
     assert "infrared" in body["tags"]
     assert body["suggestions"][0]["target_uri"] == "cloudreve://my/b.md"
+
+
+def test_documents_link_endpoint_creates_links_from_shared_entities():
+    client = make_client()
+    client.post(
+        "/api/ingestion/demo-index",
+        json={
+            "uri": "cloudreve://my/api.md",
+            "content": "AuthService API uses PostgreSQL.",
+            "requested_by": "user-1",
+        },
+    )
+    client.post(
+        "/api/ingestion/demo-index",
+        json={
+            "uri": "cloudreve://my/deploy.md",
+            "content": "AuthService deployment uses Redis.",
+            "requested_by": "user-1",
+        },
+    )
+
+    response = client.post("/api/documents/link", params={"min_shared_entities": 1})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created_count"] == 1
+    assert body["links"][0]["source_uri"] == "cloudreve://my/api.md"
+    assert body["links"][0]["target_uri"] == "cloudreve://my/deploy.md"
+    assert body["links"][0]["relation"] == "相似"
