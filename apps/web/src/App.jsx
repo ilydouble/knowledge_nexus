@@ -14,6 +14,18 @@ async function requestJson(path, options) {
   return response.json();
 }
 
+function paletteColor(type) {
+  const palette = {
+    researcher: "#f59e0b", person: "#f59e0b",
+    institution: "#10b981", organization: "#10b981",
+    method: "#3b82f6", concept: "#8b5cf6",
+    dataset: "#ec4899", metric: "#14b8a6",
+    component: "#f97316", api: "#06b6d4",
+    technology: "#6366f1", tool: "#f59e0b", framework: "#8b5cf6",
+  };
+  return palette[(type || "").toLowerCase()] || "#94a3b8";
+}
+
 function statusLabel(status) {
   const labels = {
     pending: "等待中",
@@ -69,6 +81,8 @@ function App() {
   const [editingOAuthConfig, setEditingOAuthConfig] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
 
   // Graph tab state
   const [graphMode, setGraphMode] = useState("full"); // "full" | "doc"
@@ -76,6 +90,7 @@ function App() {
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphSelectedNode, setGraphSelectedNode] = useState(null);
+  const [graphClusterMode, setGraphClusterMode] = useState(false);
 
   const selectedDocument = useMemo(
     () => documents.find((document) => document.uri === selectedUri),
@@ -89,10 +104,45 @@ function App() {
     () => (statusFilter === "all" ? files : files.filter((file) => file.status === statusFilter)),
     [files, statusFilter],
   );
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredFiles.length / pageSize)),
+    [filteredFiles.length, pageSize],
+  );
+  const pagedFiles = useMemo(
+    () => filteredFiles.slice(currentPage * pageSize, (currentPage + 1) * pageSize),
+    [filteredFiles, currentPage, pageSize],
+  );
   const selectedAttempts = useMemo(
     () => jobs.filter((job) => job.uri === selectedUri),
     [jobs, selectedUri],
   );
+  const metrics = useMemo(() => {
+    const latestByUri = new Map();
+    for (const job of jobs) {
+      const existing = latestByUri.get(job.uri);
+      if (!existing || new Date(job.created_at) > new Date(existing.created_at)) {
+        latestByUri.set(job.uri, job);
+      }
+    }
+    const documentUris = new Set(documents.map((document) => document.uri));
+    let succeeded = 0;
+    let processing = 0;
+    let failed = 0;
+    let pending = 0;
+    let skipped = 0;
+    for (const file of files) {
+      const status = latestByUri.get(file.uri)?.status || file.status;
+      if (status === "succeeded" || status === "processed" || documentUris.has(file.uri)) succeeded += 1;
+      else if (status === "running" || status === "processing") processing += 1;
+      else if (status === "failed") failed += 1;
+      else if (status === "skipped") skipped += 1;
+      else if (status === "pending") pending += 1;
+    }
+    for (const uri of documentUris) {
+      if (!files.some((file) => file.uri === uri)) succeeded += 1;
+    }
+    return { succeeded, processing, failed, pending, skipped };
+  }, [documents, files, jobs]);
 
   async function refresh() {
     const [nextFiles, nextDocuments, nextJobs, nextAuthStatus, nextAuthConfig, nextScanStatus] = await Promise.all([
@@ -166,7 +216,12 @@ function App() {
         ? `/api/graph?uri=${encodeURIComponent(docUri)}`
         : "/api/graph";
       const result = await requestJson(url);
-      setGraphData({ nodes: result.nodes || [], edges: result.edges || [] });
+      setGraphData({
+        nodes: result.nodes || [],
+        edges: result.edges || [],
+        truncated: Boolean(result.truncated),
+        total_nodes: result.total_nodes,
+      });
     } catch (err) {
       setMessage(err.message);
       setGraphData({ nodes: [], edges: [] });
@@ -192,6 +247,10 @@ function App() {
       loadGraph(graphMode, graphDocUri);
     }
   }, [tab, graphMode, graphDocUri]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages - 1));
+  }, [totalPages]);
 
   async function demoIndex() {
     setBusy(true);
@@ -310,19 +369,19 @@ function App() {
 
       <section className="metrics">
         <article>
-          <span>{files.filter((file) => file.status === "processed").length}</span>
+          <span>{metrics.succeeded}</span>
           <small>已处理文件</small>
         </article>
         <article>
-          <span>{files.filter((file) => file.status === "processing" || file.status === "running").length}</span>
+          <span>{metrics.processing}</span>
           <small>处理中任务</small>
         </article>
         <article>
-          <span>{files.filter((file) => file.status === "failed").length}</span>
+          <span>{metrics.failed}</span>
           <small>失败文件</small>
         </article>
         <article>
-          <span>{files.filter((file) => file.status === "pending").length}</span>
+          <span>{metrics.pending}</span>
           <small>待索引文件</small>
         </article>
         <article>
@@ -351,15 +410,27 @@ function App() {
             <button className="compact" onClick={() => loadGraph(graphMode, graphDocUri)} disabled={graphLoading}>
               {graphLoading ? "加载中…" : "刷新图谱"}
             </button>
+            {graphMode === "full" && (
+              <button className={`tabBtn ${graphClusterMode ? "active" : ""}`} onClick={() => setGraphClusterMode((value) => !value)}>
+                {graphClusterMode ? "完整视图" : "集群视图"}
+              </button>
+            )}
             <span className="graphStats">
               {graphData.nodes.length} 节点 · {graphData.edges.length} 关系
+              {graphData.truncated ? ` · 截断（共 ${graphData.total_nodes} 节点）` : ""}
             </span>
           </div>
 
+          {graphData.truncated && (
+            <div className="graphTruncatedBanner">
+              显示 {graphData.nodes.length} / 共 {graphData.total_nodes} 个节点（已截断）
+            </div>
+          )}
           <div className="graphMain">
             <GraphView
               nodes={graphData.nodes}
               edges={graphData.edges}
+              clusterMode={graphClusterMode}
               onNodeClick={(node) => setGraphSelectedNode(node)}
             />
 
@@ -369,36 +440,58 @@ function App() {
                   <h3>{graphSelectedNode.label || graphSelectedNode.id}</h3>
                   <button className="miniButton" onClick={() => setGraphSelectedNode(null)}>✕</button>
                 </div>
-                {graphSelectedNode.properties?.type && (
-                  <p className="graphNodeType">{graphSelectedNode.properties.type}</p>
+                {graphSelectedNode.isCluster ? (
+                  <>
+                    <p className="graphNodeType">集群 · {graphSelectedNode.count} 个节点</p>
+                    <h4>成员列表</h4>
+                    <div className="graphRelList">
+                      {graphSelectedNode.members?.map((member) => (
+                        <div key={member.id} className="graphRelRow">
+                          <span className="relType" style={{
+                            background: `${paletteColor(member.properties?.type)}22`,
+                            color: paletteColor(member.properties?.type),
+                          }}>
+                            {member.properties?.type || "节点"}
+                          </span>
+                          <span>{member.label || member.id}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {graphSelectedNode.properties?.type && (
+                      <p className="graphNodeType">{graphSelectedNode.properties.type}</p>
+                    )}
+                    {graphSelectedNode.summary && (
+                      <p className="summary">{graphSelectedNode.summary}</p>
+                    )}
+                    {graphSelectedNode.uri && (
+                      <p className="uri">{graphSelectedNode.uri}</p>
+                    )}
+                    {graphSelectedNode.properties?.type === undefined && graphSelectedNode.uri?.startsWith("cloudreve://") && (
+                      <button className="secondary" onClick={() => {
+                        setTab("workbench");
+                        setSelectedUri(graphSelectedNode.uri);
+                        setUri(graphSelectedNode.uri);
+                      }}>在工作台查看</button>
+                    )}
+                    <h4>相关关系</h4>
+                    <div className="graphRelList">
+                      {graphData.edges.filter((e) => e.source === graphSelectedNode.id || e.target === graphSelectedNode.id).map((e) => {
+                        const otherId = e.source === graphSelectedNode.id ? e.target : e.source;
+                        const other = graphData.nodes.find((n) => n.id === otherId);
+                        const dir = e.source === graphSelectedNode.id ? "→" : "←";
+                        return (
+                          <div key={e.id} className="graphRelRow">
+                            <span className="relType">{e.relation}</span>
+                            <span>{dir} {other?.label || otherId}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
-                {graphSelectedNode.summary && (
-                  <p className="summary">{graphSelectedNode.summary}</p>
-                )}
-                {graphSelectedNode.uri && (
-                  <p className="uri">{graphSelectedNode.uri}</p>
-                )}
-                {graphSelectedNode.properties?.type === undefined && graphSelectedNode.uri?.startsWith("cloudreve://") && (
-                  <button className="secondary" onClick={() => {
-                    setTab("workbench");
-                    setSelectedUri(graphSelectedNode.uri);
-                    setUri(graphSelectedNode.uri);
-                  }}>在工作台查看</button>
-                )}
-                <h4>相关关系</h4>
-                <div className="graphRelList">
-                  {graphData.edges.filter((e) => e.source === graphSelectedNode.id || e.target === graphSelectedNode.id).map((e) => {
-                    const otherId = e.source === graphSelectedNode.id ? e.target : e.source;
-                    const other = graphData.nodes.find((n) => n.id === otherId);
-                    const dir = e.source === graphSelectedNode.id ? "→" : "←";
-                    return (
-                      <div key={e.id} className="graphRelRow">
-                        <span className="relType">{e.relation}</span>
-                        <span>{dir} {other?.label || otherId}</span>
-                      </div>
-                    );
-                  })}
-                </div>
               </aside>
             )}
           </div>
@@ -409,9 +502,10 @@ function App() {
         <section className="panel fileCenter">
           <div className="panelHeader">
             <h2>文件处理中心</h2>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <select value={statusFilter} onChange={(event) => { setCurrentPage(0); setStatusFilter(event.target.value); }}>
               <option value="all">全部</option>
               <option value="processed">已处理</option>
+              <option value="succeeded">已完成</option>
               <option value="processing">处理中</option>
               <option value="pending">等待中</option>
               <option value="failed">失败</option>
@@ -419,7 +513,7 @@ function App() {
             </select>
           </div>
           <div className="fileList">
-            {filteredFiles.length ? filteredFiles.map((file) => (
+            {pagedFiles.length ? pagedFiles.map((file) => (
 
               <button
                 className={`fileRow ${selectedUri === file.uri ? "active" : ""}`}
@@ -443,6 +537,25 @@ function App() {
                 暂无文件记录。点击右侧「扫描全部文件」可抓取 Cloudreve 上的全量文件并加入处理队列。
               </p>
             )}
+          </div>
+          <div className="pagination">
+            <span className="pageInfo">
+              第 {currentPage + 1}/{totalPages} 页 · 共 {filteredFiles.length} 条
+            </span>
+            <div className="pageActions">
+              <label>
+                每页
+                <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setCurrentPage(0); }}>
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                </select>
+                条
+              </label>
+              <button className="miniButton" disabled={currentPage <= 0} onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}>上一页</button>
+              <button className="miniButton" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}>下一页</button>
+            </div>
           </div>
         </section>
 

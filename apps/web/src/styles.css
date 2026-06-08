@@ -220,6 +220,13 @@ textarea.question {
   text-align: left;
 }
 
+.fileRow strong {
+  display: block;
+  padding: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 .fileRow small {
   display: block;
   margin-top: 4px;
@@ -576,6 +583,9 @@ textarea.question {
 }
 
 .tabBtn {
+  width: auto;
+  min-height: 40px;
+  margin-top: 0;
   padding: 6px 16px;
   border: 1.5px solid #d1d9e0;
   border-radius: 8px;
@@ -633,6 +643,17 @@ textarea.question {
   color: #6b7280;
 }
 
+.graphTruncatedBanner {
+  padding: 10px 14px;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
 .graphMain {
   display: flex;
   gap: 0;
@@ -656,6 +677,7 @@ textarea.question {
 }
 
 .graphEmpty {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -762,4 +784,46 @@ textarea.question {
   font-weight: 700;
   color: #7dd3fc;
   white-space: nowrap;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe4ee;
+}
+
+.pageInfo {
+  color: #6b7c8f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pageActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pageActions label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: #46586e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pageActions select {
+  padding: 4px 6px;
+  border: 1px solid #cbd7e5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #18212f;
+  font-size: 12px;
 }
