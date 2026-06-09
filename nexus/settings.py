@@ -58,6 +58,8 @@ class Settings:
     embedding_dimensions: int = 2048
     embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4/embeddings"
     nexus_storage_backend: str = "memory"
+    hyper_extract_runtime_enabled: bool = False
+    hyper_extract_runtime_max_templates: int = 1
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -65,6 +67,10 @@ class Settings:
 
         def env(name: str, default: str | None = None) -> str | None:
             return os.getenv(name, dotenv.get(name, default))
+
+        def env_bool(name: str, default: bool = False) -> bool:
+            value = env(name, str(default).lower())
+            return str(value).lower() in {"1", "true", "yes", "on"}
 
         cloudreve_access_token = env("CLOUDREVE_ACCESS_TOKEN") or env("CLOUDREVE_TOKEN") or None
         cloudreve_refresh_token = env("CLOUDREVE_REFRESH_TOKEN") or None
@@ -104,4 +110,15 @@ class Settings:
             embedding_dimensions=int(env("EMBEDDING_DIMENSIONS", str(cls.embedding_dimensions)) or str(cls.embedding_dimensions)),
             embedding_base_url=env("EMBEDDING_BASE_URL", cls.embedding_base_url) or cls.embedding_base_url,
             nexus_storage_backend=env("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend) or cls.nexus_storage_backend,
+            hyper_extract_runtime_enabled=env_bool(
+                "HYPER_EXTRACT_RUNTIME_ENABLED",
+                cls.hyper_extract_runtime_enabled,
+            ),
+            hyper_extract_runtime_max_templates=int(
+                env(
+                    "HYPER_EXTRACT_RUNTIME_MAX_TEMPLATES",
+                    str(cls.hyper_extract_runtime_max_templates),
+                )
+                or str(cls.hyper_extract_runtime_max_templates)
+            ),
         )

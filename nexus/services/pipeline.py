@@ -17,6 +17,7 @@ from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbe
 from nexus.services.document_classifier import DocumentClassifier
 from nexus.services.file_gate import FileGate
 from nexus.services.kgraph_context import KGraphContextBuilder
+from nexus.services.hyper_extract_bridge import HyperExtractRuntimeBridge
 from nexus.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
 from nexus.settings import Settings
 from nexus.vector.milvus_store import MilvusChunk, MilvusVectorStore
@@ -68,6 +69,10 @@ class SemanticPipeline:
         self.file_gate = FileGate()
         self.document_classifier = DocumentClassifier()
         self.kgraph_context_builder = KGraphContextBuilder()
+        self.hyper_extract_bridge = HyperExtractRuntimeBridge(
+            enabled=self.settings.hyper_extract_runtime_enabled,
+            max_templates=self.settings.hyper_extract_runtime_max_templates,
+        )
         self.content_parser = ContentParserService()
         self.knowledge_extractor = KnowledgeExtractor(
             api_key=self.settings.zhipu_api_key or self.settings.openai_api_key,
@@ -187,6 +192,10 @@ class SemanticPipeline:
             extraction_text = self.kgraph_context_builder.render_for_extraction(kgraph_context)
             if not extraction_text.strip():
                 extraction_text = parsed.text
+            kgraph_context["candidate_extractions"] = self.hyper_extract_bridge.extract_candidates(
+                text=extraction_text,
+                selected_templates=kgraph_context.get("classification", {}).get("selected_templates", []),
+            )
 
             # Step 3: Extract knowledge
             stage = "semantic_extract"

@@ -31,6 +31,25 @@ class FakeExtractor:
         )
 
 
+class FakeHyperExtractBridge:
+    def __init__(self):
+        self.calls = []
+
+    def extract_candidates(self, *, text, selected_templates):
+        self.calls.append({"text": text, "selected_templates": selected_templates})
+        return [
+            {
+                "template_id": selected_templates[0]["template_id"],
+                "template_hash": selected_templates[0]["template_hash"],
+                "template_type": selected_templates[0]["type"],
+                "status": "success",
+                "candidate_entities": [{"name": "AuthService", "type": "service"}],
+                "candidate_relations": [],
+                "raw": {},
+            }
+        ]
+
+
 def test_semantic_pipeline_stores_processed_document_in_repository():
     repository = InMemoryRepository()
     pipeline = SemanticPipeline(
@@ -89,6 +108,30 @@ def test_semantic_pipeline_extracts_from_filtered_kgraph_context():
     assert "Lunch logistics" not in extracted_text
     assert "Weather update" not in extracted_text
     assert result.kgraph_context["sections"]
+
+
+def test_semantic_pipeline_attaches_hyper_extract_candidates_when_bridge_enabled():
+    repository = InMemoryRepository()
+    pipeline = SemanticPipeline(
+        cloudreve_token=None,
+        repository=repository,
+        enable_neo4j=False,
+        enable_milvus=False,
+    )
+    pipeline.cloudreve_client = MixedSignalCloudreveClient()
+    pipeline.knowledge_extractor = FakeExtractor()
+    bridge = FakeHyperExtractBridge()
+    pipeline.hyper_extract_bridge = bridge
+
+    result = pipeline.process_file("cloudreve://my/api_design.md", requested_by="user-1")
+
+    assert result.success is True
+    assert bridge.calls
+    assert bridge.calls[0]["selected_templates"]
+    assert result.kgraph_context["candidate_extractions"][0]["status"] == "success"
+    assert result.kgraph_context["candidate_extractions"][0]["candidate_entities"] == [
+        {"name": "AuthService", "type": "service"}
+    ]
 
 
 
