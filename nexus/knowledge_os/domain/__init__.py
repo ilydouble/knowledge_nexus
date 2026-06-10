@@ -1,4 +1,4 @@
-"""Compatibility exports for the old flat Knowledge OS model path."""
+"""Domain models for the Knowledge OS kernel."""
 
 from nexus.knowledge_os.domain.models import (
     CandidateBatch,

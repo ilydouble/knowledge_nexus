@@ -20,15 +20,16 @@ from nexus.cloudreve.oauth import (
     resolve_oauth_settings,
 )
 from nexus.graph.neo4j_store import Neo4jGraphStore
-from nexus.knowledge_os.models import CandidateEdit, CandidateExtractionRequest
-from nexus.knowledge_os.services import (
+from nexus.knowledge_os.application.services import (
     CandidateExtractionService,
     CandidateReviewService,
     EvidenceService,
     GraphCommitService,
 )
-from nexus.knowledge_os.postgres_store import PostgresKnowledgeOSStore
-from nexus.knowledge_os.store import InMemoryKnowledgeOSStore, KnowledgeOSStore
+from nexus.knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
+from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
+from nexus.knowledge_os.infrastructure.postgres_store import PostgresKnowledgeOSStore
+from nexus.knowledge_os.infrastructure.store import KnowledgeOSStore
 from nexus.models import GraphRagRequest, KnowledgeLayer, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
 from nexus.repositories.memory import InMemoryRepository
