@@ -49,6 +49,7 @@ nexus/knowledge_os/
 ├── domain/                  # OS 领域模型：候选批次、候选图谱、证据、提交结果
 ├── application/             # OS 用例服务：抽取、审核、预览、提交、删除治理
 ├── infrastructure/          # OS 持久化适配器：内存、Postgres、后续 Neo4j/Milvus
+├── interfaces/              # OS 对外适配：Admin API 路由注册、MCP tool 注册
 ├── models.py                # 兼容旧平铺导入，转发到 domain
 ├── services.py              # 兼容旧平铺导入，转发到 application
 ├── store.py                 # 兼容旧平铺导入，转发到 infrastructure
@@ -57,7 +58,7 @@ nexus/knowledge_os/
 
 `nexus/services` 是旧语义网盘业务能力，包含 ingestion、semantic、autolinker、graphrag、parser、classifier、Hyper-Extract bridge 等。迁移期间不再向这里随意增加 OS 级治理逻辑；新治理能力应进入 `knowledge_os/application`，旧服务只作为被调用的 adapter 或迁移来源。
 
-`nexus/app_factory.py` 和 `nexus/mcp_server.py` 目前仍是入口聚合层。后续若继续整理，建议把 Admin API router 和 MCP tool registration 迁入 `nexus/knowledge_os/interfaces/`，入口文件只负责装配。
+`nexus/knowledge_os/interfaces` 放 OS 对外适配层。`interfaces/api.py` 负责注册 Admin API 路由，`interfaces/mcp.py` 负责注册 Pi-Agent 可调用的 MCP tools。`nexus/app_factory.py` 和 `nexus/mcp_server.py` 保留为入口装配层，不再承载 OS 治理业务逻辑。
 
 `data` 放本体、Schema 和样例资产。Knowledge Nexus 的长期价值会沉淀在这些可版本化知识资产里。
 

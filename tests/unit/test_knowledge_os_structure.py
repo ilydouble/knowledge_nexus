@@ -8,3 +8,11 @@ def test_knowledge_os_exposes_canonical_layered_imports():
     assert CandidateExtractionRequest.__name__ == "CandidateExtractionRequest"
     assert InMemoryKnowledgeOSStore.__name__ == "InMemoryKnowledgeOSStore"
     assert PostgresKnowledgeOSStore.__name__ == "PostgresKnowledgeOSStore"
+
+
+def test_knowledge_os_exposes_canonical_interface_registration_imports():
+    from nexus.knowledge_os.interfaces.api import register_knowledge_os_api
+    from nexus.knowledge_os.interfaces.mcp import register_knowledge_os_tools
+
+    assert register_knowledge_os_api.__name__ == "register_knowledge_os_api"
+    assert register_knowledge_os_tools.__name__ == "register_knowledge_os_tools"

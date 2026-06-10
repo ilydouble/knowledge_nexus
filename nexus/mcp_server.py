@@ -40,14 +40,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight test 
             raise RuntimeError("mcp package is not installed")
 
 from nexus.graph.neo4j_store import Neo4jGraphStore
-from nexus.knowledge_os.application.services import (
-    CandidateExtractionService,
-    CandidateReviewService,
-    EvidenceService,
-    GraphCommitService,
-)
-from nexus.knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
 from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
+from nexus.knowledge_os.interfaces.mcp import register_knowledge_os_tools
 from nexus.repositories.postgres import PostgresRepository
 from nexus.settings import Settings
 
@@ -196,148 +190,21 @@ def find_documents_by_tag(tag: str) -> str:
     )
 
 
-@mcp.tool()
-def run_candidate_extraction(
-    uri: str,
-    instructions: str | None = None,
-    requested_by: str = "pi-agent",
-    candidate_entities_json: str = "[]",
-    candidate_relations_json: str = "[]",
-    template_ids_json: str = "[]",
-    parent_batch_id: str | None = None,
-) -> str:
-    """Create a candidate extraction batch without committing it to the graph.
+_knowledge_os_tools = register_knowledge_os_tools(
+    mcp,
+    store=_knowledge_os_store,
+    get_repository=_get_repo,
+)
 
-    Args:
-        uri: Source Cloudreve URI.
-        instructions: Optional extraction/revision guidance.
-        requested_by: Actor label for audit.
-        candidate_entities_json: JSON array of candidate entity dicts.
-        candidate_relations_json: JSON array of candidate relation dicts.
-        template_ids_json: JSON array of template ids used.
-        parent_batch_id: Optional previous batch id when regenerating from feedback.
-    """
-    service = CandidateExtractionService(_knowledge_os_store)
-    batch = service.run(
-        CandidateExtractionRequest(
-            uri=uri,
-            requested_by=requested_by,
-            instructions=instructions,
-            parent_batch_id=parent_batch_id,
-            candidate_entities=_json_array(candidate_entities_json),
-            candidate_relations=_json_array(candidate_relations_json),
-            template_ids=[str(item) for item in _json_array(template_ids_json)],
-        )
-    )
-    return json.dumps(
-        {
-            **service.describe_batch(batch.id),
-            "next_actions": ["update_candidate_items", "preview_graph_changes", "commit_candidate_batch"],
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
-
-
-@mcp.tool()
-def get_candidate_batch(batch_id: str) -> str:
-    """Return candidate ontology and graph items for a batch."""
-    try:
-        result = CandidateExtractionService(_knowledge_os_store).describe_batch(batch_id)
-    except KeyError as exc:
-        result = {"error": str(exc)}
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def update_candidate_items(batch_id: str, edits_json: str) -> str:
-    """Apply review edits to candidate graph items.
-
-    Args:
-        batch_id: Candidate batch id.
-        edits_json: JSON array of {item_id, status?, payload?, review_note?}.
-    """
-    try:
-        edits = [CandidateEdit(**item) for item in _json_array(edits_json)]
-        updated = CandidateReviewService(_knowledge_os_store).apply_edits(batch_id, edits)
-        result = {
-            "batch_id": batch_id,
-            "updated": [item.model_dump(mode="json") for item in updated],
-            "next_actions": ["preview_graph_changes", "commit_candidate_batch"],
-        }
-    except (KeyError, ValueError) as exc:
-        result = {"error": str(exc)}
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def preview_graph_changes(batch_id: str) -> str:
-    """Preview graph diff for accepted candidate items."""
-    try:
-        result = GraphCommitService(_knowledge_os_store, repository=_get_repo()).preview(batch_id).model_dump(mode="json")
-    except KeyError as exc:
-        result = {"error": str(exc)}
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def commit_candidate_batch(batch_id: str) -> str:
-    """Commit accepted candidate items into the controlled knowledge store."""
-    try:
-        result = GraphCommitService(_knowledge_os_store, repository=_get_repo()).commit(batch_id).model_dump(mode="json")
-    except KeyError as exc:
-        result = {"error": str(exc)}
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def explain_graph_evidence(node_or_edge_id: str) -> str:
-    """Explain evidence records supporting a committed graph node or edge."""
-    result = EvidenceService(_knowledge_os_store, repository=_get_repo()).explain(node_or_edge_id)
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def ask_knowledge_graph(question: str, include_candidates: bool = False) -> str:
-    """Answer by summarizing available committed documents and optional candidates."""
-    docs = [_doc_to_dict(doc) for doc in _get_repo().list_documents()]
-    payload = {"question": question, "documents": docs}
-    if include_candidates:
-        payload["candidate_batches"] = [
-            {
-                "batch": batch.model_dump(mode="json"),
-                "items": [
-                    item.model_dump(mode="json")
-                    for item in _knowledge_os_store.list_candidate_graph_items(batch.id)
-                ],
-            }
-            for batch in _knowledge_os_store.list_batches()
-        ]
-    return json.dumps(payload, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def mark_source_deleted(uri: str) -> str:
-    """Mark a source document deleted and stale its evidence without hard purge."""
-    result = EvidenceService(_knowledge_os_store, repository=_get_repo()).mark_source_deleted(uri)
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def purge_knowledge(uri: str, mode: str = "knowledge") -> str:
-    """Explicitly purge knowledge evidence for a source URI."""
-    result = EvidenceService(_knowledge_os_store, repository=_get_repo()).purge(uri, mode=mode)
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-def _json_array(payload: str) -> list:
-    try:
-        value = json.loads(payload or "[]")
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"expected JSON array: {exc}") from exc
-    if not isinstance(value, list):
-        raise ValueError("expected JSON array")
-    return value
+run_candidate_extraction = _knowledge_os_tools["run_candidate_extraction"]
+get_candidate_batch = _knowledge_os_tools["get_candidate_batch"]
+update_candidate_items = _knowledge_os_tools["update_candidate_items"]
+preview_graph_changes = _knowledge_os_tools["preview_graph_changes"]
+commit_candidate_batch = _knowledge_os_tools["commit_candidate_batch"]
+explain_graph_evidence = _knowledge_os_tools["explain_graph_evidence"]
+ask_knowledge_graph = _knowledge_os_tools["ask_knowledge_graph"]
+mark_source_deleted = _knowledge_os_tools["mark_source_deleted"]
+purge_knowledge = _knowledge_os_tools["purge_knowledge"]
 
 
 # ---------------------------------------------------------------------------
