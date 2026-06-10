@@ -424,6 +424,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         repository=repo,
         get_store=get_knowledge_os_store,
         get_extraction_pipeline=get_extraction_pipeline,
+        neo4j_store=_neo4j_store,
     )
 
     # ------------------------------------------------------------------

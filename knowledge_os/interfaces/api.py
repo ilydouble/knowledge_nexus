@@ -30,6 +30,7 @@ def register_knowledge_os_api(
     repository: NexusRepository,
     get_store: Callable[[], KnowledgeOSStore],
     get_extraction_pipeline: Callable[[], CandidateExtractionPipeline | None] | None = None,
+    neo4j_store: Any | None = None,
 ) -> None:
     """Register Knowledge OS admin routes on an existing FastAPI app."""
 
@@ -104,7 +105,9 @@ def register_knowledge_os_api(
         store: KnowledgeOSStore = Depends(get_store),
     ) -> dict[str, Any]:
         try:
-            return GraphCommitService(store, repository=repository).preview(batch_id).model_dump(mode="json")
+            return GraphCommitService(
+                store, repository=repository, neo4j_store=neo4j_store
+            ).preview(batch_id).model_dump(mode="json")
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -114,7 +117,9 @@ def register_knowledge_os_api(
         store: KnowledgeOSStore = Depends(get_store),
     ) -> dict[str, Any]:
         try:
-            return GraphCommitService(store, repository=repository).commit(batch_id).model_dump(mode="json")
+            return GraphCommitService(
+                store, repository=repository, neo4j_store=neo4j_store
+            ).commit(batch_id).model_dump(mode="json")
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

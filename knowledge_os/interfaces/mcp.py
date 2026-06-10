@@ -24,6 +24,7 @@ def register_knowledge_os_tools(
     store: KnowledgeOSStore,
     get_repository: Callable[[], NexusRepository],
     extraction_pipeline: CandidateExtractionPipeline | None = None,
+    neo4j_store: Any | None = None,
 ) -> dict[str, Callable[..., str]]:
     """Register Pi-Agent-facing Knowledge OS tools and return them for tests."""
 
@@ -133,16 +134,20 @@ def register_knowledge_os_tools(
     def preview_graph_changes(batch_id: str) -> str:
         """Preview graph diff for accepted candidate items."""
         try:
-            result = GraphCommitService(store, repository=get_repository()).preview(batch_id).model_dump(mode="json")
+            result = GraphCommitService(
+                store, repository=get_repository(), neo4j_store=neo4j_store
+            ).preview(batch_id).model_dump(mode="json")
         except KeyError as exc:
             result = {"error": str(exc)}
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     @mcp.tool()
     def commit_candidate_batch(batch_id: str) -> str:
-        """Commit accepted candidate items into the controlled knowledge store."""
+        """Commit accepted candidate items into Neo4j and the knowledge store."""
         try:
-            result = GraphCommitService(store, repository=get_repository()).commit(batch_id).model_dump(mode="json")
+            result = GraphCommitService(
+                store, repository=get_repository(), neo4j_store=neo4j_store
+            ).commit(batch_id).model_dump(mode="json")
         except KeyError as exc:
             result = {"error": str(exc)}
         return json.dumps(result, ensure_ascii=False, indent=2)

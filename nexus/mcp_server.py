@@ -193,11 +193,19 @@ def find_documents_by_tag(tag: str) -> str:
 from knowledge_os.application.extraction_pipeline import build_candidate_extraction_pipeline
 _extraction_pipeline = build_candidate_extraction_pipeline(settings, _knowledge_os_store)
 
+# Eagerly init Neo4j for Knowledge OS tools (graceful fallback on failure)
+_neo4j_for_knowledge_os: Neo4jGraphStore | None = None
+try:
+    _neo4j_for_knowledge_os = _get_neo4j()
+except Exception as _neo4j_exc:
+    logger.warning("Knowledge OS: Neo4j unavailable at startup (%s); commit will warn.", _neo4j_exc)
+
 _knowledge_os_tools = register_knowledge_os_tools(
     mcp,
     store=_knowledge_os_store,
     get_repository=_get_repo,
     extraction_pipeline=_extraction_pipeline,
+    neo4j_store=_neo4j_for_knowledge_os,
 )
 
 run_candidate_extraction = _knowledge_os_tools["run_candidate_extraction"]

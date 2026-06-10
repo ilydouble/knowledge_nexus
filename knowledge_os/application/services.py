@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from knowledge_os.domain.models import (
     CandidateBatch,
@@ -14,8 +15,13 @@ from knowledge_os.domain.models import (
     GraphEvidence,
 )
 from knowledge_os.infrastructure.store import KnowledgeOSStore
-from nexus.models import KnowledgeLayer, KnowledgeLink
+from nexus.models import GraphEdge, GraphNode, KnowledgeLayer, KnowledgeLink
 from nexus.repositories.base import NexusRepository
+
+if TYPE_CHECKING:
+    from nexus.graph.neo4j_store import Neo4jGraphStore
+
+logger = logging.getLogger("knowledge_os.services")
 
 
 class CandidateExtractionService:
@@ -139,9 +145,15 @@ class CandidateReviewService:
 
 
 class GraphCommitService:
-    def __init__(self, store: KnowledgeOSStore, repository: NexusRepository | None = None) -> None:
+    def __init__(
+        self,
+        store: KnowledgeOSStore,
+        repository: NexusRepository | None = None,
+        neo4j_store: Neo4jGraphStore | None = None,
+    ) -> None:
         self.store = store
         self.repository = repository
+        self.neo4j_store = neo4j_store
 
     def preview(self, batch_id: str) -> GraphChangePreview:
         batch = self._require_batch(batch_id)
@@ -165,13 +177,56 @@ class GraphCommitService:
         items = self.store.list_candidate_graph_items(batch_id)
         committed = 0
         evidence_created = 0
+        warnings: list[str] = []
+
+        accepted_nodes = [i for i in items if i.kind == "node" and i.status == "accepted"]
+        accepted_edges = [i for i in items if i.kind == "edge" and i.status == "accepted"]
+
+        # ── Write to Neo4j ───────────────────────────────────────────────────
+        if self.neo4j_store is not None:
+            # 1. Upsert entity nodes first
+            for item in accepted_nodes:
+                try:
+                    self.neo4j_store.upsert_file_node(self._item_to_graph_node(item))
+                except Exception as exc:
+                    warnings.append(f"Neo4j node write failed ({item.payload.get('id')}): {exc}")
+                    logger.warning("Neo4j node write failed: %s", exc)
+
+            # 2. Upsert edges — ensure stub nodes exist for referenced entities
+            for item in accepted_edges:
+                payload = item.payload
+                source_id = str(payload.get("source") or "")
+                target_id = str(payload.get("target") or "")
+                if not source_id or not target_id:
+                    warnings.append(f"Edge item {item.id} missing source/target — skipped.")
+                    continue
+                try:
+                    source_uri = f"entity://{source_id}"
+                    target_uri = f"entity://{target_id}"
+                    # Ensure stub nodes exist (MERGE is idempotent)
+                    stub_layer = KnowledgeLayer.L2
+                    self.neo4j_store.upsert_file_node(
+                        GraphNode(id=source_id, uri=source_uri, label=source_id, layer=stub_layer, accessible=True)
+                    )
+                    self.neo4j_store.upsert_file_node(
+                        GraphNode(id=target_id, uri=target_uri, label=target_id, layer=stub_layer, accessible=True)
+                    )
+                    edge = self._item_to_graph_edge(item, batch)
+                    self.neo4j_store.upsert_edge(edge, source_uri, target_uri)
+                except Exception as exc:
+                    warnings.append(f"Neo4j edge write failed ({source_id}→{target_id}): {exc}")
+                    logger.warning("Neo4j edge write failed: %s", exc)
+        else:
+            warnings.append("Neo4j not configured; graph data not written.")
+
+        # ── Write evidence + mark status ─────────────────────────────────────
         for item in items:
             if item.status != "accepted":
                 continue
             graph_item_id = self._graph_item_id(item)
             if self.store.list_graph_evidence(graph_item_id=graph_item_id):
-                next_item = item.model_copy(update={"status": "committed"})
-                self.store.update_candidate_graph_item(next_item)
+                # Already has evidence — just mark committed
+                self.store.update_candidate_graph_item(item.model_copy(update={"status": "committed"}))
                 continue
             evidence = self.store.add_graph_evidence(
                 GraphEvidence(
@@ -186,17 +241,19 @@ class GraphCommitService:
             evidence_created += 1 if evidence.batch_id == batch.id else 0
             committed += 1
             self._write_repository_link(batch, item)
-            next_item = item.model_copy(update={"status": "committed"})
-            self.store.update_candidate_graph_item(next_item)
+            self.store.update_candidate_graph_item(item.model_copy(update={"status": "committed"}))
+
         if batch.status != "committed":
-            batch = batch.model_copy(update={"status": "committed", "committed_at": datetime.now(UTC)})
-            self.store.update_batch(batch)
+            self.store.update_batch(
+                batch.model_copy(update={"status": "committed", "committed_at": datetime.now(UTC)})
+            )
         return CommitResult(
             batch_id=batch.id,
             status="committed",
             committed_items=committed,
             skipped_items=len(items) - committed,
             evidence_created=evidence_created,
+            warnings=warnings,
         )
 
     def _require_batch(self, batch_id: str) -> CandidateBatch:
@@ -260,6 +317,38 @@ class GraphCommitService:
         if item.kind == "edge":
             return f"edge:{payload.get('source')}:{payload.get('relation')}:{payload.get('target')}"
         return f"node:{payload.get('id')}"
+
+    @staticmethod
+    def _item_to_graph_node(item: CandidateGraphItem) -> GraphNode:
+        payload = item.payload
+        entity_id = str(payload.get("id") or payload.get("label") or item.id)
+        return GraphNode(
+            id=entity_id,
+            uri=f"entity://{entity_id}",
+            label=str(payload.get("label") or entity_id),
+            summary=payload.get("description") or payload.get("summary"),
+            layer=KnowledgeLayer.L2,
+            accessible=True,
+            properties={"type": payload.get("type") or "Concept", "confidence": item.confidence},
+        )
+
+    @staticmethod
+    def _item_to_graph_edge(item: CandidateGraphItem, batch: CandidateBatch) -> GraphEdge:
+        payload = item.payload
+        source_id = str(payload.get("source") or "")
+        target_id = str(payload.get("target") or "")
+        relation = str(payload.get("relation") or "RELATES_TO")
+        return GraphEdge(
+            id=f"edge:{source_id}:{relation}:{target_id}",
+            source=source_id,
+            target=target_id,
+            relation=relation,
+            layer=KnowledgeLayer.L2,
+            owner_scope=batch.requested_by,
+            source_file_uri=batch.source_uri,
+            visibility="team",
+            properties={"evidence": payload.get("evidence") or "", "confidence": item.confidence},
+        )
 
 
 class EvidenceService:
