@@ -1,0 +1,75 @@
+schema: nexus-v1
+name: medical_record
+type: graph
+version: "1.0"
+tags: [medicine, clinical, drug, anatomy, hospital]
+language: [en, zh]
+description:
+  en: "Medical records, clinical notes, drug interaction documents, anatomy textbooks — focus on conditions, treatments, drugs, procedures, and anatomy."
+  zh: "病历、临床记录、药物说明书、解剖教材 — 聚焦疾病、治疗、药物、操作和解剖结构。"
+
+concepts:
+  - type: Drug
+    description: "Named pharmaceutical agent (e.g. 'Warfarin', '阿司匹林'). Use generic names; NOT drug classes like 'anticoagulants'."
+  - type: Condition
+    description: "Named medical diagnosis or disease (e.g. 'Type 2 Diabetes', '心房颤动'). NOT vague symptoms."
+  - type: Symptom
+    description: "Observable clinical sign or patient complaint (e.g. 'fever', '胸痛', 'elevated BP')."
+  - type: Procedure
+    description: "Named medical procedure or intervention (e.g. 'coronary bypass', 'MRI scan', '血液透析')."
+  - type: AnatomicalStructure
+    description: "Named body part or organ (e.g. 'left ventricle', '肝脏', 'femoral artery')."
+  - type: ClinicalEvent
+    description: "Named temporal event in patient care (e.g. 'admission', 'surgery Day 1', '出院')."
+  - type: LabResult
+    description: "Named lab test WITH its value (e.g. 'HbA1c 8.2%', '血糖 12.3 mmol/L')."
+
+relations:
+  - relation: TREATS
+    source: Drug
+    target: Condition
+    description: "Drug is indicated for treating this condition"
+  - relation: INTERACTS_WITH
+    source: Drug
+    target: Drug
+    description: "Drug has a clinically significant interaction with the other drug"
+  - relation: CONTRAINDICATED_WITH
+    source: Drug
+    target: Condition
+    description: "Drug is contraindicated in patients with this condition"
+  - relation: MANIFESTS_AS
+    source: Condition
+    target: Symptom
+    description: "Condition presents with or causes this symptom"
+  - relation: DIAGNOSED_WITH
+    source: ClinicalEvent
+    target: Condition
+    description: "During this event, the patient was diagnosed with this condition"
+  - relation: UNDERWENT
+    source: ClinicalEvent
+    target: Procedure
+    description: "Patient underwent this procedure during the event"
+  - relation: FOLLOWED_BY
+    source: ClinicalEvent
+    target: ClinicalEvent
+    description: "Clinical event succeeded by another event in the care timeline"
+  - relation: CONTAINS
+    source: AnatomicalStructure
+    target: AnatomicalStructure
+    description: "Higher-level structure anatomically contains the sub-structure"
+  - relation: ABNORMAL_RESULT
+    source: Procedure
+    target: LabResult
+    description: "Procedure produced this lab result"
+
+instructions: |
+  Focus on: diagnosis section, medication list, procedure log, lab results, clinical timeline.
+  Drug interactions: always specify severity (high/medium/low) in the description if stated.
+  LabResult MUST include numeric value — skip if only test name with no value.
+  ClinicalEvent represents temporal milestones (admission, surgery, discharge, consultation).
+  Do NOT extract generic terms like 'patient', 'doctor', or 'hospital' as entities.
+  For anatomy: only extract structures explicitly mentioned as relevant to the clinical content.
+
+identifiers:
+  entity_id: "{type}_{label}"
+  relation_id: "{source}|{relation}|{target}"

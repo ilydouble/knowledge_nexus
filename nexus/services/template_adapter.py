@@ -34,6 +34,7 @@ TEMPLATES_DIR: Path = Path(__file__).parent.parent.parent / "data" / "ontology" 
 #: Mapping from knowledge_nexus doc_type → relative template path (no .yaml suffix).
 #: nexus/ paths use schema: nexus-v1 format; HE paths are general/legal/… subdirs.
 TEMPLATE_MAP: dict[str, str] = {
+    # Core general doc types
     "academic_paper":  "nexus/academic_paper",
     "technical_doc":   "nexus/technical_doc",
     "meeting_minutes": "nexus/meeting_minutes",
@@ -42,6 +43,14 @@ TEMPLATE_MAP: dict[str, str] = {
     "email":           "nexus/email",
     "tabular_data":    "nexus/tabular_data",
     "general":         "nexus/general",
+    # Domain-specific doc types
+    "financial_report":  "nexus/financial_report",
+    "medical_record":    "nexus/medical_record",
+    "tcm_text":          "nexus/tcm_text",
+    "industry_manual":   "nexus/industry_manual",
+    "legal_case":        "nexus/legal_case",
+    "biography":         "nexus/biography",
+    "workflow_doc":      "nexus/workflow_doc",
 }
 
 #: Ordered candidate templates for kgraph input preparation. These are used for
@@ -49,6 +58,7 @@ TEMPLATE_MAP: dict[str, str] = {
 #: will replace its native ontology.
 #: nexus/ paths are listed first (primary ontology source); HE paths follow as hints.
 DOC_TYPE_TEMPLATE_HINTS: dict[str, list[str]] = {
+    # Core general doc types
     "academic_paper": ["nexus/academic_paper", "general/concept_graph", "general/doc_structure"],
     "technical_doc": [
         "nexus/technical_doc",
@@ -69,6 +79,52 @@ DOC_TYPE_TEMPLATE_HINTS: dict[str, list[str]] = {
     "email": ["nexus/email", "general/base_graph"],
     "tabular_data": ["nexus/tabular_data", "general/base_model", "general/base_list"],
     "general": ["nexus/general", "general/base_graph", "general/concept_graph"],
+    # Domain-specific doc types
+    "financial_report": [
+        "nexus/financial_report",
+        "finance/ownership_graph",
+        "finance/event_timeline",
+        "finance/risk_factor_set",
+        "finance/earnings_summary",
+    ],
+    "medical_record": [
+        "nexus/medical_record",
+        "medicine/drug_interaction",
+        "medicine/hospital_timeline",
+        "medicine/anatomy_graph",
+        "medicine/treatment_map",
+    ],
+    "tcm_text": [
+        "nexus/tcm_text",
+        "tcm/herb_relation",
+        "tcm/meridian_graph",
+        "tcm/formula_composition",
+        "tcm/syndrome_reasoning",
+    ],
+    "industry_manual": [
+        "nexus/industry_manual",
+        "industry/equipment_topology",
+        "industry/operation_flow",
+        "industry/failure_case",
+        "industry/safety_control",
+        "industry/emergency_response",
+    ],
+    "legal_case": [
+        "nexus/legal_case",
+        "legal/case_citation",
+        "legal/case_fact_timeline",
+        "legal/contract_obligation",
+        "legal/compliance_list",
+    ],
+    "biography": [
+        "nexus/biography",
+        "general/biography_graph",
+    ],
+    "workflow_doc": [
+        "nexus/workflow_doc",
+        "general/workflow_graph",
+        "industry/operation_flow",
+    ],
 }
 
 BUSINESS_DOMAIN_TAGS: dict[str, str] = {

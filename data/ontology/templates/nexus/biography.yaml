@@ -1,0 +1,71 @@
+schema: nexus-v1
+name: biography
+type: graph
+version: "1.0"
+tags: [biography, person, life, history, memoir]
+language: [en, zh]
+description:
+  en: "Biographies, memoirs, chronicles, historical profiles — focus on persons, their relationships, achievements, and life events."
+  zh: "传记、回忆录、年谱、历史人物志 — 聚焦人物、关系、成就和生平事件。"
+
+concepts:
+  - type: Person
+    description: "Named individual (e.g. 'Marie Curie', '毛泽东'). Maintain consistent naming throughout."
+  - type: Organization
+    description: "Named institution, company, or group the subject is affiliated with (e.g. 'Harvard University', '共产党')."
+  - type: LifeEvent
+    description: "Named significant event in the subject's life (e.g. 'Nobel Prize 1903', '长征 1934-1935', 'founded Apple')."
+  - type: Achievement
+    description: "Named award, honor, or milestone (e.g. 'Fields Medal', 'Academy Award', '全国劳动模范')."
+  - type: Work
+    description: "Named creation or publication (e.g. 'On the Origin of Species', '红楼梦', 'Windows 95')."
+  - type: Location
+    description: "Named place associated with significant life events (e.g. 'Paris', '延安', 'Silicon Valley')."
+
+relations:
+  - relation: MENTORED_BY
+    source: Person
+    target: Person
+    description: "Person was taught, guided, or significantly influenced by the target person"
+  - relation: COLLABORATED_WITH
+    source: Person
+    target: Person
+    description: "Persons worked together on a project, institution, or cause"
+  - relation: AFFILIATED_WITH
+    source: Person
+    target: Organization
+    description: "Person was a member, employee, or leader of this organization"
+  - relation: PARTICIPATED_IN
+    source: Person
+    target: LifeEvent
+    description: "Person was a key participant in or initiator of this event"
+  - relation: RECEIVED
+    source: Person
+    target: Achievement
+    description: "Person was awarded or recognized with this achievement"
+  - relation: CREATED
+    source: Person
+    target: Work
+    description: "Person authored, invented, or produced this work"
+  - relation: LIVED_IN
+    source: Person
+    target: Location
+    description: "Person resided or had significant presence at this location"
+  - relation: INFLUENCED
+    source: Person
+    target: Person
+    description: "Person's ideas or actions had a notable impact on the target person"
+
+instructions: |
+  Focus on: the biographical subject's key relationships, turning-point life events,
+  institutional affiliations, works and inventions, awards, and places of significance.
+  LifeEvent should be named with a verb phrase and year if known (e.g. 'Founded Microsoft 1975').
+  Time context: include dates in descriptions when explicitly stated in the text.
+  Do NOT extract historical figures only mentioned in passing — only those with a direct
+  relationship to the subject.
+  Do NOT treat chapter headings or section titles as entities.
+  INFLUENCED is directional: source shaped the target's thinking or career, not vice versa.
+
+identifiers:
+  entity_id: "{type}_{label}"
+  relation_id: "{source}|{relation}|{target}"

@@ -1,0 +1,75 @@
+schema: nexus-v1
+name: workflow_doc
+type: graph
+version: "1.0"
+tags: [workflow, sop, process, agent, skill, automation]
+language: [en, zh]
+description:
+  en: "Workflow documents — agent skill definitions, SOP manuals, process flowcharts, automation pipeline specs."
+  zh: "工作流文档 — Agent技能定义、SOP操作手册、流程图、自动化管线规格。"
+
+concepts:
+  - type: Step
+    description: "Named workflow step or task node (e.g. 'Validate Input', '调用OCR接口'). Use action-oriented names."
+  - type: Tool
+    description: "Named tool, API, or system used by a step (e.g. 'GPT-4o', 'Elasticsearch', '微信API')."
+  - type: InputData
+    description: "Named input artifact or data type required (e.g. 'user_query string', 'PDF file', '订单JSON')."
+  - type: OutputData
+    description: "Named output artifact or result produced (e.g. 'extraction_result JSON', '分类标签', 'SQL query')."
+  - type: Condition
+    description: "Named decision condition or branching criterion (e.g. 'confidence > 0.8', '文件类型为PDF', 'retry_count < 3')."
+  - type: Agent
+    description: "Named autonomous agent or role executing steps (e.g. 'Planner Agent', '审核员', 'Validator')."
+
+relations:
+  - relation: FOLLOWED_BY
+    source: Step
+    target: Step
+    description: "Step is directly followed by the next step in the normal execution path"
+  - relation: IF_TRUE
+    source: Condition
+    target: Step
+    description: "If condition is satisfied, execution branches to this step"
+  - relation: IF_FALSE
+    source: Condition
+    target: Step
+    description: "If condition is not satisfied, execution routes to this step"
+  - relation: USES
+    source: Step
+    target: Tool
+    description: "Step invokes or relies on this tool or API"
+  - relation: REQUIRES
+    source: Step
+    target: InputData
+    description: "Step needs this input data to execute"
+  - relation: PRODUCES
+    source: Step
+    target: OutputData
+    description: "Step generates or outputs this artifact"
+  - relation: EXECUTED_BY
+    source: Step
+    target: Agent
+    description: "Step is performed by this agent or role"
+  - relation: TRIGGERS
+    source: Step
+    target: Condition
+    description: "Step outcome triggers evaluation of this condition"
+  - relation: DEPENDS_ON
+    source: Step
+    target: Step
+    description: "Step cannot start until the target step has completed (non-sequential dependency)"
+
+instructions: |
+  Focus on: step sequence and branching logic, tool/API calls per step, data inputs and outputs,
+  agents or roles responsible for each step, conditional decision points.
+  Step names: use verb-noun format and match the document's own terminology exactly.
+  Preserve sequence via FOLLOWED_BY; use DEPENDS_ON only for non-sequential prerequisites.
+  Condition nodes: extract the literal condition expression when available.
+  Do NOT extract implementation details (variable names, code syntax) as entities
+  unless they represent named tools or data schemas.
+  Parallel branches: create separate FOLLOWED_BY edges from the branching step to each parallel path.
+
+identifiers:
+  entity_id: "{type}_{label}"
+  relation_id: "{source}|{relation}|{target}"
