@@ -420,7 +420,25 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         if scanner.is_scanning:
             result = scanner.last_result()
             return {"status": "already_scanning", **result.to_dict()}
-        background_tasks.add_task(scanner.scan)
+
+        # Build a delete pipeline on-demand for the manual scan trigger.
+        # This ensures stale data is cleaned up even outside the worker process.
+        _delete_fn = None
+        if _neo4j_store is not None and _llm_api_key:
+            try:
+                from nexus.services.pipeline import SemanticPipeline
+                _scan_pipeline = SemanticPipeline(
+                    cloudreve_token=None,
+                    settings=app_settings,
+                    repository=repo,
+                    enable_neo4j=True,
+                    enable_milvus=bool(app_settings.milvus_host),
+                )
+                _delete_fn = _scan_pipeline.delete_file
+            except Exception:
+                pass
+
+        background_tasks.add_task(scanner.scan, delete_fn=_delete_fn)
         return {"status": "started"}
 
     return app

@@ -233,11 +233,17 @@ class Worker:
         logger.info("Periodic scanner starting (interval: %.0fs)", interval_seconds)
         while True:
             try:
-                result = await self.scanner.scan(requested_by="periodic-scanner")
+                self._ensure_pipeline()
+                delete_fn = self.pipeline.delete_file if self.pipeline else None
+                result = await self.scanner.scan(
+                    requested_by="periodic-scanner",
+                    delete_fn=delete_fn,
+                )
                 logger.info(
-                    "Periodic scan finished: %d files found, %d newly queued",
+                    "Periodic scan finished: %d found, %d queued, %d stale deleted",
                     result.files_found,
                     result.files_queued,
+                    result.files_deleted,
                 )
             except Exception as exc:
                 logger.error("Periodic scan error: %s", exc)

@@ -7,9 +7,12 @@ Files that existed before the worker started, or files uploaded during a
 reconnection gap, are silently missed.
 
 The ``CloudreveScanner`` closes that gap by walking the Cloudreve directory
-tree on demand (or on a timer).  For every file it discovers that has no
-corresponding ingestion job or semantic document, it creates a ``pending``
-ingestion job so the worker pipeline can pick it up.
+tree on demand (or on a timer).  It does two things each scan:
+
+1. **Forward pass**: queue any new file (in Cloudreve but not yet known).
+2. **Reverse pass**: clean up stale data (in knowledge store but no longer in
+   Cloudreve).  Callers supply a ``delete_fn`` callback so the scanner stays
+   decoupled from the pipeline and storage backends.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Callable
 
 from nexus.cloudreve.client import CloudreveClient, CloudreveError
 from nexus.models import SyncRequest
@@ -35,6 +39,7 @@ class ScanResult:
     finished_at: datetime | None = None
     files_found: int = 0
     files_queued: int = 0
+    files_deleted: int = 0   # stale URIs removed from the knowledge store
     error: str | None = None
     discovered_uris: list[str] = field(default_factory=list)
 
@@ -45,6 +50,7 @@ class ScanResult:
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "files_found": self.files_found,
             "files_queued": self.files_queued,
+            "files_deleted": self.files_deleted,
             "error": self.error,
         }
 
@@ -77,11 +83,20 @@ class CloudreveScanner:
         self,
         root_uri: str = "cloudreve://my",
         requested_by: str = "scanner",
+        delete_fn: Callable[[str], None] | None = None,
     ) -> ScanResult:
-        """Scan *root_uri* recursively and queue newly-discovered files.
+        """Scan *root_uri* recursively, queue new files, and clean up stale data.
 
-        Returns immediately (with the in-progress result) if a scan is already
-        running.
+        Args:
+            root_uri:    Cloudreve directory to walk (default: entire drive).
+            requested_by: Label written into queued ingestion jobs.
+            delete_fn:  Optional callback ``(uri: str) -> None`` that removes
+                        all knowledge data for a URI.  When provided the scanner
+                        also performs a **reverse pass**: any URI present in the
+                        knowledge store but absent from Cloudreve is cleaned up.
+                        Pass ``pipeline.delete_file`` here.
+
+        Returns immediately (with the in-progress result) if a scan is already running.
         """
         if self._scanning:
             return self._last_result
@@ -95,6 +110,7 @@ class CloudreveScanner:
             await self._walk(root_uri, discovered)
             result.files_found = len(discovered)
             result.discovered_uris = discovered
+            discovered_set = set(discovered)
 
             # Determine which URIs are already known to the system.
             # Exclude failed jobs so they get re-queued on the next scan.
@@ -106,19 +122,41 @@ class CloudreveScanner:
             )
             known_uris.update(doc.uri for doc in self.repository.list_documents())
 
+            # ── Forward pass: queue newly-discovered files ─────────────────────
             queued = 0
             for uri in discovered:
                 if uri not in known_uris:
                     self.ingestion.sync(SyncRequest(uri=uri, requested_by=requested_by))
                     queued += 1
-
             result.files_queued = queued
+
+            # ── Reverse pass: clean up stale knowledge data ────────────────────
+            # Only runs when a delete_fn is supplied; skips URIs that are not
+            # file:// or cloudreve:// paths (e.g. entity:// nodes).
+            deleted = 0
+            if delete_fn is not None:
+                processed_uris = {
+                    doc.uri for doc in self.repository.list_documents()
+                    if doc.uri and not doc.uri.startswith("entity://")
+                }
+                stale_uris = processed_uris - discovered_set
+                for uri in stale_uris:
+                    logger.info("Stale URI detected (no longer in Cloudreve): %s", uri)
+                    try:
+                        import asyncio
+                        await asyncio.to_thread(delete_fn, uri)
+                        deleted += 1
+                    except Exception as exc:
+                        logger.warning("Failed to delete stale URI %s: %s", uri, exc)
+            result.files_deleted = deleted
+
             result.status = "done"
             result.finished_at = datetime.now(UTC)
             logger.info(
-                "Scan complete: %d files found, %d new URIs queued for ingestion",
+                "Scan complete: %d found, %d queued, %d stale deleted",
                 result.files_found,
                 result.files_queued,
+                result.files_deleted,
             )
 
         except Exception as exc:
