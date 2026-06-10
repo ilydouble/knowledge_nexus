@@ -32,41 +32,43 @@ logger = logging.getLogger(__name__)
 TEMPLATES_DIR: Path = Path(__file__).parent.parent.parent / "data" / "ontology" / "templates"
 
 #: Mapping from knowledge_nexus doc_type → relative template path (no .yaml suffix).
+#: nexus/ paths use schema: nexus-v1 format; HE paths are general/legal/… subdirs.
 TEMPLATE_MAP: dict[str, str] = {
-    "academic_paper":  "general/concept_graph",      # type: graph ✓ — concept hierarchy
-    # technical_doc uses base_graph (general entity types: technology/service/organization)
-    # rather than doc_structure (chapter/section focus) so relevance scoring stays sharp
-    # on component/API content.  doc_structure is reserved for document-navigation tasks.
-    "technical_doc":   "general/base_graph",         # type: graph ✓
-    "meeting_minutes": "general/workflow_graph",     # type: temporal_graph → metadata-only
-    "report":          "general/base_graph",         # type: graph ✓
-    "contract":        "legal/contract_obligation",  # type: hypergraph → metadata-only
-    "email":           "general/base_graph",         # type: graph ✓
-    "general":         "general/base_graph",         # type: graph ✓
+    "academic_paper":  "nexus/academic_paper",
+    "technical_doc":   "nexus/technical_doc",
+    "meeting_minutes": "nexus/meeting_minutes",
+    "report":          "nexus/report",
+    "contract":        "nexus/contract",
+    "email":           "nexus/email",
+    "tabular_data":    "nexus/tabular_data",
+    "general":         "nexus/general",
 }
 
 #: Ordered candidate templates for kgraph input preparation. These are used for
 #: traceable template selection metadata, not as a guarantee that the extractor
 #: will replace its native ontology.
+#: nexus/ paths are listed first (primary ontology source); HE paths follow as hints.
 DOC_TYPE_TEMPLATE_HINTS: dict[str, list[str]] = {
-    "academic_paper": ["general/concept_graph", "general/doc_structure"],
+    "academic_paper": ["nexus/academic_paper", "general/concept_graph", "general/doc_structure"],
     "technical_doc": [
+        "nexus/technical_doc",
         "general/base_graph",
         "general/doc_structure",
         "industry/equipment_topology",
         "industry/operation_flow",
     ],
-    "meeting_minutes": ["general/workflow_graph", "industry/operation_flow"],
-    "report": ["finance/earnings_summary", "finance/event_timeline", "general/base_graph"],
+    "meeting_minutes": ["nexus/meeting_minutes", "general/workflow_graph", "industry/operation_flow"],
+    "report": ["nexus/report", "finance/earnings_summary", "finance/event_timeline", "general/base_graph"],
     "contract": [
+        "nexus/contract",
         "legal/contract_obligation",
         "legal/defined_term_set",
         "legal/compliance_list",
         "legal/case_fact_timeline",
     ],
-    "email": ["general/base_graph"],
-    "tabular_data": ["general/base_model", "general/base_list"],
-    "general": ["general/base_graph", "general/concept_graph"],
+    "email": ["nexus/email", "general/base_graph"],
+    "tabular_data": ["nexus/tabular_data", "general/base_model", "general/base_list"],
+    "general": ["nexus/general", "general/base_graph", "general/concept_graph"],
 }
 
 BUSINESS_DOMAIN_TAGS: dict[str, str] = {
@@ -378,12 +380,25 @@ class HyperExtractTemplateAdapter:
         }
 
     def _build_ontology(self, raw: dict) -> dict[str, Any]:
+        if raw.get("schema") == "nexus-v1":
+            return self._build_nexus_ontology(raw)
         output = raw.get("output", {})
         guideline = raw.get("guideline", {})
         return {
             "concepts":     self._parse_concepts(output.get("entities", {})),
             "relations":    self._parse_relations(output.get("relations", {})),
             "instructions": self._build_instructions(guideline),
+        }
+
+    def _build_nexus_ontology(self, raw: dict) -> dict[str, Any]:
+        """Directly load concepts/relations/instructions from a nexus-v1 YAML."""
+        instructions = raw.get("instructions", "")
+        if isinstance(instructions, list):
+            instructions = " ".join(instructions)
+        return {
+            "concepts":     list(raw.get("concepts", [])),
+            "relations":    list(raw.get("relations", [])),
+            "instructions": str(instructions).strip() or "Extract named, specific entities only.",
         }
 
     def _parse_concepts(self, entities_block: dict) -> list[dict[str, str]]:

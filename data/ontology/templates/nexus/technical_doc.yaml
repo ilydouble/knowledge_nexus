@@ -1,0 +1,69 @@
+schema: nexus-v1
+name: technical_doc
+type: graph
+version: "1.0"
+tags: [engineering, technical, software, architecture]
+language: [en, zh]
+description:
+  en: "Technical documentation, API references, architecture documents, README files, system design docs."
+  zh: "技术文档、API参考、架构文档、README、系统设计文档。"
+
+concepts:
+  - type: Component
+    description: "A distinct named module, service, or subsystem (e.g. 'AuthService', 'DataPipeline'). NOT generic terms."
+  - type: API
+    description: "A specific endpoint, method, or interface (e.g. 'POST /api/users', 'getUserById()'). Must have a name/path."
+  - type: Database
+    description: "A named storage system (e.g. 'PostgreSQL', 'Redis', 'Milvus'). NOT abstract 'database'."
+  - type: Framework
+    description: "A named software framework or library (e.g. 'FastAPI', 'React', 'PyTorch')."
+  - type: Config
+    description: "A named configuration parameter or setting (e.g. 'MAX_RETRIES=3', 'JWT_SECRET'). Must be a specific name."
+  - type: DataModel
+    description: "A named data schema, model, or type (e.g. 'UserProfile', 'JobRecord', 'Order')."
+  - type: Error
+    description: "A specific error code or exception type (e.g. '401 Unauthorized', 'ConnectionTimeout')."
+
+relations:
+  - relation: DEPENDS_ON
+    source: Component
+    target: Component
+    description: "Component requires another component to operate"
+  - relation: CALLS
+    source: Component
+    target: API
+    description: "Component invokes this API endpoint or method"
+  - relation: STORES_IN
+    source: Component
+    target: Database
+    description: "Component persists data in this database"
+  - relation: IMPLEMENTS
+    source: Component
+    target: API
+    description: "Component provides the implementation of this API"
+  - relation: USES
+    source: Component
+    target: Framework
+    description: "Component is built with or depends on this framework"
+  - relation: RETURNS
+    source: API
+    target: DataModel
+    description: "API returns this data structure"
+  - relation: RAISES
+    source: API
+    target: Error
+    description: "API can raise or return this error type"
+  - relation: CONFIGURES
+    source: Component
+    target: Config
+    description: "Component behaviour is controlled by this config"
+
+instructions: |
+  Extract concrete named items only — generic terms like 'module' or 'service' are NOT entities.
+  APIs must have specific names or paths. DataModels must appear as named schemas or classes.
+  Configs must be specific parameter names, not descriptions.
+  Relations should reflect actual code-level or architectural dependencies.
+
+identifiers:
+  entity_id: "{type}_{label}"
+  relation_id: "{source}|{relation}|{target}"

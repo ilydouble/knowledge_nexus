@@ -47,7 +47,7 @@ def test_context_builder_exports_traceable_kgraph_json_contract():
     assert section["source_span"]["page"] == 3
     assert section["source_span"]["start_char"] >= 0
     assert section["source_span"]["end_char"] > section["source_span"]["start_char"]
-    # technical_doc keeps native ontology hints; template candidates are tracked separately.
+    # technical_doc uses nexus/technical_doc.yaml ontology hints.
     assert len(section["entity_hints"]) > 0
     assert len(section["relation_hints"]) > 0
     assert "Component" in section["entity_hints"]
@@ -55,12 +55,12 @@ def test_context_builder_exports_traceable_kgraph_json_contract():
     # template_meta must be present and correctly identify the adapted template
     assert "template_meta" in context["classification"]
     meta = context["classification"]["template_meta"]
-    assert meta["name"] == "graph"   # base_graph template name is 'graph'
+    assert meta["name"] == "technical_doc"   # nexus/technical_doc.yaml
     assert meta["type"] == "graph"
-    assert context["classification"]["primary_template_id"] == "general/base_graph"
+    assert context["classification"]["primary_template_id"] == "nexus/technical_doc"
     assert context["classification"]["primary_template_type"] == "graph"
     assert context["classification"]["selected_templates"]
-    assert context["classification"]["selected_templates"][0]["template_id"] == "general/base_graph"
+    assert context["classification"]["selected_templates"][0]["template_id"] == "nexus/technical_doc"
     assert len(context["classification"]["selected_templates"][0]["template_hash"]) == 64
     assert context["metadata"]["published_at"] == "2026-06-01"
     assert context["metadata"]["version"] == "v2"
@@ -144,9 +144,10 @@ class TestHyperExtractTemplateAdapter:
     def setup_method(self):
         self.adapter = HyperExtractTemplateAdapter()
 
-    def test_adapt_graph_type_returns_non_fallback(self):
-        """base_graph / concept_graph / doc_structure are type:graph → full adaptation."""
-        for doc_type in ("general", "report", "email", "academic_paper", "technical_doc"):
+    def test_adapt_all_canonical_doc_types_return_full_ontology(self):
+        """All TEMPLATE_MAP doc_types must return a full ontology (not fallback)."""
+        for doc_type in ("general", "report", "email", "academic_paper", "technical_doc",
+                         "meeting_minutes", "contract", "tabular_data"):
             result = self.adapter.adapt(doc_type)
             assert result is not None, f"{doc_type}: adapt() returned None"
             assert not result.is_native_fallback, f"{doc_type}: expected full adaptation"
@@ -154,28 +155,24 @@ class TestHyperExtractTemplateAdapter:
             assert result.ontology.get("relations"), f"{doc_type}: no relations"
             assert result.ontology.get("instructions"), f"{doc_type}: no instructions"
 
-    def test_adapt_hypergraph_returns_native_fallback(self):
-        """contract → hypergraph template → metadata-only, is_native_fallback=True."""
+    def test_adapt_contract_uses_nexus_yaml(self):
+        """contract → nexus/contract.yaml (type:graph) → Party/Obligation concepts."""
         result = self.adapter.adapt("contract")
-        assert result is not None
-        assert result.is_native_fallback is True
-        assert result.ontology == {}
-        assert result.template_meta["name"] == "contract_obligation"
-        assert result.template_meta["type"] == "hypergraph"
+        assert result is not None and not result.is_native_fallback
+        types = {c["type"] for c in result.ontology["concepts"]}
+        assert "Party" in types
+        assert "Obligation" in types
 
-    def test_adapt_temporal_graph_returns_native_fallback(self):
-        """meeting_minutes → workflow_graph (temporal_graph) → metadata-only."""
+    def test_adapt_meeting_minutes_uses_nexus_yaml(self):
+        """meeting_minutes → nexus/meeting_minutes.yaml (type:graph) → Task/Decision."""
         result = self.adapter.adapt("meeting_minutes")
-        assert result is not None
-        assert result.is_native_fallback is True
-        assert result.template_meta["type"] == "temporal_graph"
-
-    def test_adapt_unknown_doc_type_returns_none(self):
-        result = self.adapter.adapt("tabular_data")
-        assert result is None
+        assert result is not None and not result.is_native_fallback
+        types = {c["type"] for c in result.ontology["concepts"]}
+        assert "Task" in types
+        assert "Decision" in types
 
     def test_adapt_general_concepts_and_relations(self):
-        """general → base_graph: open entity types, graph relations."""
+        """general → nexus/general.yaml: broad entity types, graph relations."""
         result = self.adapter.adapt("general")
         assert result is not None and not result.is_native_fallback
         types = [c["type"] for c in result.ontology["concepts"]]
@@ -184,27 +181,26 @@ class TestHyperExtractTemplateAdapter:
         assert len(rel_names) > 0
 
     def test_adapt_academic_paper_concepts(self):
-        """academic_paper → concept_graph: concept-type vocabulary."""
+        """academic_paper → nexus/academic_paper.yaml: Researcher/Method/Dataset vocabulary."""
         result = self.adapter.adapt("academic_paper")
         assert result is not None and not result.is_native_fallback
         types = {c["type"] for c in result.ontology["concepts"]}
-        # concept_graph entity type field examples: entity/abstract/process/relation
-        assert any(t in types for t in ("Entity", "Abstract", "Process", "Relation"))
+        assert any(t in types for t in ("Researcher", "Method", "Dataset"))
 
-    def test_adapt_technical_doc_uses_base_graph(self):
-        """technical_doc → base_graph (generic graph): open entity types."""
+    def test_adapt_technical_doc_uses_nexus_yaml(self):
+        """technical_doc → nexus/technical_doc.yaml: Component/API/Database vocabulary."""
         result = self.adapter.adapt("technical_doc")
         assert result is not None and not result.is_native_fallback
         types = {c["type"] for c in result.ontology["concepts"]}
-        # base_graph entity type examples: Person, Location, Organization, Technology, …
-        assert any(t in types for t in ("Person", "Location", "Organization", "Technology", "Service"))
+        assert "Component" in types
+        assert "API" in types
 
     def test_template_meta_contains_tracking_fields(self):
         """template_meta must always expose name, type, tags, identifiers."""
         result = self.adapter.adapt("general")
         assert result is not None
         meta = result.template_meta
-        assert "name" in meta and meta["name"] == "graph"
+        assert "name" in meta and meta["name"] == "general"
         assert "type" in meta and meta["type"] == "graph"
         assert "tags" in meta
         assert "identifiers" in meta

@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from nexus.services.content_parser import ParsedContent
 from nexus.services.document_classifier import CATEGORIES, ClassificationResult
-from nexus.services.knowledge_extractor import DEFAULT_ONTOLOGY, DOCUMENT_TEMPLATES
+from nexus.services.knowledge_extractor import _EMERGENCY_FALLBACK_ONTOLOGY
 from nexus.services.template_adapter import HyperExtractTemplateAdapter, TemplateRegistry, TemplateSelector
 
 
@@ -49,7 +49,7 @@ class KGraphContextBuilder:
         extraction_batch_id: str | None = None,
     ) -> dict[str, Any]:
         document_id = self._document_id(uri)
-        ontology_id = classification.doc_type if classification.doc_type in DOCUMENT_TEMPLATES else "general"
+        ontology_id = classification.doc_type
         business_domain = self._business_domain(classification.doc_type)
         registry = TemplateRegistry()
         selected_templates = TemplateSelector(registry).select(
@@ -57,16 +57,19 @@ class KGraphContextBuilder:
             business_domain=business_domain,
         )
 
-        # Resolve ontology for hints. Native document templates stay authoritative
-        # when available; Hyper-Extract graph templates guide unknown/general docs.
+        # Resolve ontology via YAML adapter (nexus-v1 templates take priority).
         adapter = HyperExtractTemplateAdapter(registry=registry)
         adapter_result = adapter.adapt(classification.doc_type)
-        if ontology_id in DOCUMENT_TEMPLATES:
-            ontology = DOCUMENT_TEMPLATES[ontology_id]
-        elif adapter_result is not None and not adapter_result.is_native_fallback:
+        if adapter_result is not None and not adapter_result.is_native_fallback:
             ontology = adapter_result.ontology
         else:
-            ontology = DEFAULT_ONTOLOGY
+            # Try general fallback, then emergency Python dict
+            general_result = adapter.adapt("general")
+            ontology = (
+                general_result.ontology
+                if general_result is not None and not general_result.is_native_fallback
+                else _EMERGENCY_FALLBACK_ONTOLOGY
+            )
         template_meta = selected_templates[0].as_dict() if selected_templates else (
             adapter_result.template_meta if adapter_result is not None else {}
         )

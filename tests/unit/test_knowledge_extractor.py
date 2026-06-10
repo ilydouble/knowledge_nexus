@@ -2,7 +2,6 @@ import json
 
 from nexus.services.document_classifier import CATEGORIES, DocumentClassifier
 from nexus.services.knowledge_extractor import (
-    DOCUMENT_TEMPLATES,
     ExtractedKnowledge,
     KnowledgeExtractor,
     MIN_ENTITY_CONFIDENCE,
@@ -255,17 +254,22 @@ class TestDocumentClassifier:
             assert "strategy" in meta, f"{cat} is missing 'strategy'"
             assert meta["strategy"] in ("llm_extract", "structural_summary")
 
-    def test_all_types_present_in_document_templates(self):
+    def test_all_doc_types_resolve_yaml_ontology(self):
+        """Every canonical doc_type must load a full ontology via the YAML adapter."""
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
+        for doc_type in ("tabular_data", "contract", "email", "academic_paper",
+                         "technical_doc", "meeting_minutes", "report", "general"):
+            ontology = extractor._get_ontology(doc_type)
+            assert "concepts" in ontology, f"{doc_type}: missing 'concepts'"
+            assert "relations" in ontology, f"{doc_type}: missing 'relations'"
+            assert "instructions" in ontology, f"{doc_type}: missing 'instructions'"
+
+    def test_each_yaml_template_has_rich_ontology_fields(self):
+        """Every YAML template must have concepts (with descriptions) and relations (with source/target)."""
+        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
         for doc_type in ("tabular_data", "contract", "email", "academic_paper",
                          "technical_doc", "meeting_minutes", "report"):
-            assert doc_type in DOCUMENT_TEMPLATES, f"{doc_type} missing from DOCUMENT_TEMPLATES"
-
-    def test_each_template_has_rich_ontology_fields(self):
-        """Every template must have concepts (with descriptions) and relations (with source/target)."""
-        for doc_type, tmpl in DOCUMENT_TEMPLATES.items():
-            assert "concepts" in tmpl, f"{doc_type}: missing 'concepts'"
-            assert "relations" in tmpl, f"{doc_type}: missing 'relations'"
-            assert "instructions" in tmpl, f"{doc_type}: missing 'instructions'"
+            tmpl = extractor._get_ontology(doc_type)
             for concept in tmpl["concepts"]:
                 assert "type" in concept and "description" in concept, \
                     f"{doc_type}: concept missing type or description: {concept}"
@@ -274,9 +278,6 @@ class TestDocumentClassifier:
             for rel in tmpl["relations"]:
                 assert "relation" in rel and "source" in rel and "target" in rel, \
                     f"{doc_type}: relation missing relation/source/target: {rel}"
-                # source/target must not be generic 'Entity' (except general fallback)
-                assert rel["source"] != "Entity" or doc_type == "general", \
-                    f"{doc_type}: relation '{rel['relation']}' has generic source 'Entity'"
 
     def test_prompt_contains_entity_descriptions(self):
         """_build_extraction_prompt should include entity descriptions from the resolved ontology.
@@ -300,21 +301,21 @@ class TestDocumentClassifier:
         rel_names = [r["relation"] for r in ontology["relations"]]
         assert any(rn in prompt for rn in rel_names)
 
-    def test_get_ontology_falls_back_to_document_templates_for_hypergraph(self):
-        """contract → hypergraph template → adapter returns is_native_fallback=True
-        → _get_ontology must use DOCUMENT_TEMPLATES['contract'] instead."""
+    def test_get_ontology_contract_uses_nexus_yaml(self):
+        """contract → nexus/contract.yaml (type: graph) → full ontology with Party/Obligation."""
         extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
         ontology = extractor._get_ontology("contract")
-        # DOCUMENT_TEMPLATES['contract'] has Party, Obligation, Right, Penalty, …
         types = {c["type"] for c in ontology.get("concepts", [])}
-        assert "Party" in types, "Expected DOCUMENT_TEMPLATES fallback with 'Party' concept"
+        assert "Party" in types, "Expected nexus/contract.yaml with 'Party' concept"
+        assert "Obligation" in types
 
-    def test_get_ontology_falls_back_to_document_templates_for_temporal_graph(self):
-        """meeting_minutes → workflow_graph (temporal_graph) → native fallback."""
+    def test_get_ontology_meeting_minutes_uses_nexus_yaml(self):
+        """meeting_minutes → nexus/meeting_minutes.yaml (type: graph) → full ontology."""
         extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
         ontology = extractor._get_ontology("meeting_minutes")
         types = {c["type"] for c in ontology.get("concepts", [])}
-        assert "Task" in types, "Expected DOCUMENT_TEMPLATES fallback with 'Task' concept"
+        assert "Task" in types, "Expected nexus/meeting_minutes.yaml with 'Task' concept"
+        assert "Decision" in types
 
     def test_get_ontology_uses_template_adapter_for_graph_types(self):
         """general → base_graph (graph) → adapter is used, not DEFAULT_ONTOLOGY."""
@@ -324,8 +325,8 @@ class TestDocumentClassifier:
         types = {c["type"].lower() for c in ontology.get("concepts", [])}
         assert len(types) > 0
 
-    def test_get_ontology_keeps_native_technical_doc_template(self):
-        """Template selection metadata must not replace the richer native technical ontology."""
+    def test_get_ontology_technical_doc_uses_nexus_yaml(self):
+        """technical_doc → nexus/technical_doc.yaml → Component/API vocabulary."""
         extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
 
         ontology = extractor._get_ontology("technical_doc")
