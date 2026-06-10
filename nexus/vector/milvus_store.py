@@ -113,6 +113,14 @@ class MilvusVectorStore:
             )
         return chunks
 
+    def delete_chunks_by_uri(self, uri: str) -> None:
+        """Delete all vector chunks belonging to *uri*."""
+        if not utility.has_collection(self.collection_name, using=self.alias, timeout=5):
+            return
+        collection = Collection(self.collection_name, using=self.alias)
+        expr = f'uri == "{uri}"'
+        collection.delete(expr, timeout=10)
+
     def drop_collection(self) -> None:
         if utility.has_collection(self.collection_name, using=self.alias, timeout=5):
             utility.drop_collection(self.collection_name, using=self.alias, timeout=10)

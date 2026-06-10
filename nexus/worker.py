@@ -25,8 +25,10 @@ logger = logging.getLogger("nexus.worker")
 class Worker:
     """Process Cloudreve file events through semantic pipeline."""
     
-    # Event types that trigger processing
+    # Event types that trigger processing (queue a job)
     PROCESSABLE_EVENTS = {"create", "update", "modify", "rename"}
+    # Event types that trigger immediate deletion (no job queue)
+    DELETE_EVENTS = {"delete", "remove", "trash"}
     
     def __init__(self) -> None:
         self.settings = Settings.from_env()
@@ -68,7 +70,7 @@ class Worker:
         """
         event_type = event.get("type", "")
 
-        if event_type not in self.PROCESSABLE_EVENTS:
+        if event_type not in self.PROCESSABLE_EVENTS and event_type not in self.DELETE_EVENTS:
             logger.debug("Ignoring event type: %s", event_type)
             return
 
@@ -79,6 +81,11 @@ class Worker:
 
         if not uri.startswith("cloudreve://"):
             uri = f"cloudreve://my{uri if uri.startswith('/') else '/' + uri}"
+
+        # Delete events: clean up immediately, no job queue
+        if event_type in self.DELETE_EVENTS:
+            await self._handle_delete(uri)
+            return
 
         # Deduplicate: skip if a pending/running job already exists for this URI
         existing = [
@@ -132,6 +139,17 @@ class Worker:
         except Exception as exc:
             self.ingestion.mark_failed(job_id, str(exc), stage="download", error_code="worker_exception")
             logger.error("Error processing %s: %s", uri, exc)
+
+    async def _handle_delete(self, uri: str) -> None:
+        """Delete all knowledge data for *uri* across every storage backend."""
+        self._ensure_pipeline()
+        if self.pipeline is None:
+            logger.warning("Pipeline not available, cannot delete %s", uri)
+            return
+        try:
+            await asyncio.to_thread(self.pipeline.delete_file, uri)
+        except Exception as exc:
+            logger.error("Error deleting knowledge for %s: %s", uri, exc)
 
     async def process_pending_loop(
         self,

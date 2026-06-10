@@ -73,6 +73,17 @@ class InMemoryRepository:
     def list_documents(self) -> list[SemanticDocument]:
         return list(self.documents.values())
 
+    def delete_document(self, uri: str) -> None:
+        """Remove a document and its graph node from the in-memory store."""
+        self.documents.pop(uri, None)
+        node_id = self._node_id_for_uri(uri)
+        self.nodes.pop(node_id, None)
+        # Remove edges that reference this file node
+        self.edges = {
+            eid: e for eid, e in self.edges.items()
+            if e.source != node_id and e.target != node_id
+        }
+
     @staticmethod
     def _node_id_for_uri(uri: str) -> str:
         return "file:" + uri

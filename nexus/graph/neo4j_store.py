@@ -91,6 +91,29 @@ class Neo4jGraphStore:
             edges[edge.id] = edge
         return GraphResult(nodes=list(nodes.values()), edges=list(edges.values()))
 
+    def delete_file(self, uri: str) -> None:
+        """Delete a file node, all its edges, and any entity nodes left isolated.
+
+        Runs two Cypher statements in sequence:
+        1. DETACH DELETE the file node (removes node + all its relationships).
+        2. Remove entity nodes that have no remaining relationships (orphans).
+        """
+        with self.driver.session() as session:
+            # Step 1: remove the file node and every edge attached to it
+            session.run(
+                "MATCH (n:NexusFile {uri: $uri}) DETACH DELETE n",
+                uri=uri,
+            )
+            # Step 2: clean up entity nodes that are now completely isolated
+            session.run(
+                """
+                MATCH (e:NexusFile)
+                WHERE e.uri STARTS WITH 'entity://'
+                  AND NOT (e)--()
+                DELETE e
+                """
+            )
+
     def delete_by_uri_for_tests(self, uri: str) -> None:
         with self.driver.session() as session:
             session.run("MATCH (n:NexusFile {uri: $uri}) DETACH DELETE n", uri=uri)

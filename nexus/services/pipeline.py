@@ -387,6 +387,36 @@ class SemanticPipeline:
                     -(-len(texts) // 64),  # ceil(n/64)
                 )
     
+    def delete_file(self, uri: str) -> None:
+        """Remove all knowledge data for *uri* from every storage backend.
+
+        Cleans up in order:
+        1. Neo4j — file node, its edges, and any orphaned entity nodes
+        2. Milvus — all vector chunks for this URI
+        3. Repository (Postgres / memory) — document record
+        """
+        logger.info("Deleting knowledge data for %s", uri)
+
+        if self.neo4j_store:
+            try:
+                self.neo4j_store.delete_file(uri)
+            except Exception as exc:
+                logger.warning("Neo4j delete failed for %s: %s", uri, exc)
+
+        if self.milvus_store:
+            try:
+                self.milvus_store.delete_chunks_by_uri(uri)
+            except Exception as exc:
+                logger.warning("Milvus delete failed for %s: %s", uri, exc)
+
+        if self.repository:
+            try:
+                self.repository.delete_document(uri)
+            except Exception as exc:
+                logger.warning("Repository delete failed for %s: %s", uri, exc)
+
+        logger.info("Deletion complete for %s", uri)
+
     def close(self) -> None:
         """Close connections."""
         if self.neo4j_store:

@@ -235,6 +235,15 @@ class PostgresRepository:
             )
         return list(nodes.values()), edges
 
+    def delete_document(self, uri: str) -> None:
+        """Delete a document record and its associated chunks from Postgres."""
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM semantic_documents WHERE tenant_id = %s AND uri = %s",
+                (self.tenant_id, uri),
+            )
+            connection.commit()
+
     def delete_by_uri_for_tests(self, uri: str) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM knowledge_links WHERE tenant_id = %s AND (source_uri = %s OR target_uri = %s)", (self.tenant_id, uri, uri))
