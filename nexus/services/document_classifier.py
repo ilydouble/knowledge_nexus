@@ -1,10 +1,11 @@
 """Document Classifier — multi-signal content-aware document type detection.
 
-Classification uses three independent signal groups, applied in priority order:
+Classification uses four signal groups, applied in priority order:
 
 1. **Extension signals** — definitive for tabular formats (.xlsx / .csv row-count)
 2. **Filename keyword signals** — strong hints (论文, report, meeting …)
 3. **Content preview signals** — body-level keywords from the first 600 chars
+4. **Agent fallback** — Strands classifier agent when confidence < 0.4
 
 Each category is paired with an extraction *strategy*:
 
@@ -13,9 +14,12 @@ Each category is paired with an extraction *strategy*:
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +169,20 @@ class ClassificationResult:
 # Classifier
 # ---------------------------------------------------------------------------
 
+_AGENT_CONFIDENCE_THRESHOLD = 0.4   # trigger agent fallback below this level
+
+
 class DocumentClassifier:
-    """Classify a document into a pre-defined category using multiple signals."""
+    """Classify a document into a pre-defined category using multiple signals.
+
+    Pass ``agent`` (a Strands Agent created by
+    ``nexus.agents.create_classifier_agent()``) to enable the agent fallback
+    for low-confidence documents.  When ``agent`` is ``None`` the classifier
+    behaves exactly as before (keyword-only, returns ``general`` on miss).
+    """
+
+    def __init__(self, agent=None) -> None:  # type: ignore[assignment]
+        self._agent = agent
 
     def classify(
         self,
@@ -225,8 +241,36 @@ class DocumentClassifier:
 
         if best_score == 0.0:
             signals.append("no signals matched → general")
-            return ClassificationResult("general", "llm_extract", 0.3, signals)
+            keyword_result = ClassificationResult("general", "llm_extract", 0.3, signals)
+        else:
+            confidence = min(1.0, best_score / 6.0)
+            keyword_result = ClassificationResult(
+                best_cat, CATEGORIES[best_cat]["strategy"], confidence, signals
+            )
 
-        confidence = min(1.0, best_score / 6.0)   # normalise roughly to [0, 1]
-        strategy = CATEGORIES[best_cat]["strategy"]
-        return ClassificationResult(best_cat, strategy, confidence, signals)
+        # ── Signal 5: agent fallback when confidence is low ───────────────────
+        if keyword_result.confidence < _AGENT_CONFIDENCE_THRESHOLD and self._agent is not None:
+            return self._agent_classify(filename, content_preview, keyword_result)
+
+        return keyword_result
+
+    def _agent_classify(
+        self,
+        filename: str,
+        content_preview: str,
+        fallback: ClassificationResult,
+    ) -> ClassificationResult:
+        """Invoke the Strands classifier agent and merge result with fallback."""
+        from nexus.agents.classifier_agent import classify_with_agent  # lazy import
+
+        logger.info("Agent fallback triggered for '%s' (confidence=%.2f)", filename, fallback.confidence)
+        doc_type, reason = classify_with_agent(filename, content_preview, self._agent)
+
+        # Validate the agent returned a known doc_type
+        if doc_type not in CATEGORIES:
+            logger.warning("Agent returned unknown doc_type '%s', using fallback", doc_type)
+            return fallback
+
+        strategy = CATEGORIES[doc_type]["strategy"]
+        signals = fallback.signals + [f"agent→{doc_type}: {reason}"]
+        return ClassificationResult(doc_type, strategy, 0.6, signals)
