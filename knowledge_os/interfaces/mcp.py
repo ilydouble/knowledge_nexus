@@ -160,21 +160,24 @@ def register_knowledge_os_tools(
 
     @mcp.tool()
     def ask_knowledge_graph(question: str, include_candidates: bool = False) -> str:
-        """Answer by summarizing available committed documents and optional candidates."""
-        docs = [_doc_to_dict(doc) for doc in get_repository().list_documents()]
-        payload = {"question": question, "documents": docs}
-        if include_candidates:
-            payload["candidate_batches"] = [
-                {
-                    "batch": batch.model_dump(mode="json"),
-                    "items": [
-                        item.model_dump(mode="json")
-                        for item in store.list_candidate_graph_items(batch.id)
-                    ],
-                }
-                for batch in store.list_batches()
-            ]
-        return json.dumps(payload, ensure_ascii=False, indent=2)
+        """Query the committed knowledge graph to answer a natural-language question.
+
+        Searches Neo4j for entities matching keywords in *question*, retrieves
+        their 1-hop neighbourhood and evidence records, and returns structured
+        context for Pi-Agent to synthesise a cited answer.
+
+        Args:
+            question: The question to answer (natural language).
+            include_candidates: If True, also include uncommitted candidate
+                batches in the context (useful for 'what was just extracted?').
+        """
+        from knowledge_os.application.graph_qa import GraphQAService
+        result = GraphQAService(
+            store=store,
+            neo4j_store=neo4j_store,
+            repository=get_repository(),
+        ).ask(question, include_candidates=include_candidates)
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     @mcp.tool()
     def mark_source_deleted(uri: str) -> str:
