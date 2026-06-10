@@ -1,7 +1,7 @@
 # 项目目录结构
 
 当前目录树正在从“语义网盘工作台”过渡到“Knowledge OS 内核 + 旧实现适配层”。
-新的代码优先进入 `nexus/knowledge_os/`，旧的 `nexus/services/` 暂时保留为兼容和迁移来源。
+新的代码优先进入根目录 `knowledge_os/`，旧的 `nexus/services/` 暂时保留为兼容和迁移来源。
 
 ```text
 knowledge_nexus/
@@ -23,8 +23,9 @@ knowledge_nexus/
 │   ├── k8s/                 # Kubernetes 部署资源
 │   └── terraform/           # 云资源 IaC
 ├── knowledge-graph/         # 已有知识图谱 skill 与脚本
+├── knowledge_os/            # 新 Knowledge OS 内核（未来替换旧 services）
 ├── nexus/
-│   ├── knowledge_os/        # 新 Knowledge OS 内核（未来替换旧 services）
+│   ├── knowledge_os/        # 兼容层：转发旧导入到根目录 knowledge_os
 │   ├── services/            # 旧语义网盘服务：解析、录入、抽取、GraphRAG
 │   ├── agents/              # Strands / Pi-Agent 相关 agent 封装
 │   ├── cloudreve/           # Cloudreve 适配器
@@ -42,10 +43,10 @@ knowledge_nexus/
 
 `apps` 放用户可见的入口。`apps/web` 承载前端交互，`apps/api` 承载统一 API 与权限入口。
 
-`nexus/knowledge_os` 是新内核。它采用分层目录，所有未来重构优先进入这里：
+`knowledge_os` 是新内核。它采用分层目录，所有未来重构优先进入这里：
 
 ```text
-nexus/knowledge_os/
+knowledge_os/
 ├── domain/                  # OS 领域模型：候选批次、候选图谱、证据、提交结果
 ├── application/             # OS 用例服务：抽取、审核、预览、提交、删除治理
 ├── infrastructure/          # OS 持久化适配器：内存、Postgres、后续 Neo4j/Milvus
@@ -56,9 +57,11 @@ nexus/knowledge_os/
 └── postgres_store.py        # 兼容旧平铺导入，转发到 infrastructure
 ```
 
+`nexus/knowledge_os` 只保留兼容转发层，供旧导入继续工作；新代码不要再往这里加实现。
+
 `nexus/services` 是旧语义网盘业务能力，包含 ingestion、semantic、autolinker、graphrag、parser、classifier、Hyper-Extract bridge 等。迁移期间不再向这里随意增加 OS 级治理逻辑；新治理能力应进入 `knowledge_os/application`，旧服务只作为被调用的 adapter 或迁移来源。
 
-`nexus/knowledge_os/interfaces` 放 OS 对外适配层。`interfaces/api.py` 负责注册 Admin API 路由，`interfaces/mcp.py` 负责注册 Pi-Agent 可调用的 MCP tools。`nexus/app_factory.py` 和 `nexus/mcp_server.py` 保留为入口装配层，不再承载 OS 治理业务逻辑。
+`knowledge_os/interfaces` 放 OS 对外适配层。`interfaces/api.py` 负责注册 Admin API 路由，`interfaces/mcp.py` 负责注册 Pi-Agent 可调用的 MCP tools。`nexus/app_factory.py` 和 `nexus/mcp_server.py` 保留为入口装配层，不再承载 OS 治理业务逻辑。
 
 `data` 放本体、Schema 和样例资产。Knowledge Nexus 的长期价值会沉淀在这些可版本化知识资产里。
 

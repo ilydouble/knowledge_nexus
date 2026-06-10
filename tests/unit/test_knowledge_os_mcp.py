@@ -1,7 +1,7 @@
 import json
 
-from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
-from nexus.knowledge_os.interfaces.mcp import register_knowledge_os_tools
+from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
+from knowledge_os.interfaces.mcp import register_knowledge_os_tools
 from nexus.repositories.memory import InMemoryRepository
 
 

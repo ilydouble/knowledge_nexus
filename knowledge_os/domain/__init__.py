@@ -1,6 +1,6 @@
-"""Compatibility exports for ``nexus.knowledge_os.domain``."""
+"""Domain models for the Knowledge OS kernel."""
 
-from knowledge_os.domain import (
+from knowledge_os.domain.models import (
     CandidateBatch,
     CandidateEdit,
     CandidateExtractionRequest,

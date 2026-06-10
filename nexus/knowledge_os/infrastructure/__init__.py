@@ -1,8 +1,10 @@
-"""Infrastructure adapters for Knowledge OS persistence."""
+"""Compatibility exports for ``nexus.knowledge_os.infrastructure``."""
 
-from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
-from nexus.knowledge_os.infrastructure.postgres_store import PostgresKnowledgeOSStore
-from nexus.knowledge_os.infrastructure.store import KnowledgeOSStore
+from knowledge_os.infrastructure import (
+    InMemoryKnowledgeOSStore,
+    KnowledgeOSStore,
+    PostgresKnowledgeOSStore,
+)
 
 __all__ = [
     "InMemoryKnowledgeOSStore",

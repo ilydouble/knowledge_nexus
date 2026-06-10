@@ -1,6 +1,6 @@
-"""Compatibility exports for the old flat Knowledge OS service path."""
+"""Compatibility exports for ``nexus.knowledge_os.services``."""
 
-from nexus.knowledge_os.application.services import (
+from knowledge_os.services import (
     CandidateExtractionService,
     CandidateReviewService,
     EvidenceService,

@@ -1,11 +1,11 @@
-from nexus.knowledge_os.application.services import (
+from knowledge_os.application.services import (
     CandidateExtractionService,
     CandidateReviewService,
     EvidenceService,
     GraphCommitService,
 )
-from nexus.knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
-from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
+from knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
+from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
 from nexus.repositories.memory import InMemoryRepository
 
 

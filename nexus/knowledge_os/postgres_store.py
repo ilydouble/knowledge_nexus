@@ -1,5 +1,5 @@
-"""Compatibility export for the old flat Knowledge OS Postgres store path."""
+"""Compatibility export for ``nexus.knowledge_os.postgres_store``."""
 
-from nexus.knowledge_os.infrastructure.postgres_store import PostgresKnowledgeOSStore
+from knowledge_os.postgres_store import PostgresKnowledgeOSStore
 
 __all__ = ["PostgresKnowledgeOSStore"]

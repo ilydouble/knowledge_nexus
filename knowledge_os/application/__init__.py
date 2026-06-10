@@ -1,6 +1,6 @@
-"""Compatibility exports for ``nexus.knowledge_os.application``."""
+"""Application services for Knowledge OS use cases."""
 
-from knowledge_os.application import (
+from knowledge_os.application.services import (
     CandidateExtractionService,
     CandidateReviewService,
     EvidenceService,

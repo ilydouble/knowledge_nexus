@@ -30,5 +30,5 @@ pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["nexus*"]
+include = ["nexus*", "knowledge_os*"]
 exclude = ["apps*", "data*", "docs*", "infrastructure*", "packages*", "scripts*", "services*", "tests*"]

@@ -1,7 +1,6 @@
-"""Compatibility exports for the old flat Knowledge OS store path."""
+"""Compatibility exports for ``nexus.knowledge_os.store``."""
 
-from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
-from nexus.knowledge_os.infrastructure.store import KnowledgeOSStore
+from knowledge_os.store import InMemoryKnowledgeOSStore, KnowledgeOSStore
 
 __all__ = [
     "InMemoryKnowledgeOSStore",

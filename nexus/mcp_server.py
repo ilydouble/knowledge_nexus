@@ -40,8 +40,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight test 
             raise RuntimeError("mcp package is not installed")
 
 from nexus.graph.neo4j_store import Neo4jGraphStore
-from nexus.knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
-from nexus.knowledge_os.interfaces.mcp import register_knowledge_os_tools
+from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
+from knowledge_os.interfaces.mcp import register_knowledge_os_tools
 from nexus.repositories.postgres import PostgresRepository
 from nexus.settings import Settings
 
