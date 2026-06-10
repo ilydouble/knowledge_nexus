@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS semantic_documents (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS content_hash TEXT;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS active_batch_id TEXT;
+
 CREATE TABLE IF NOT EXISTS semantic_chunks (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL DEFAULT 'default',
@@ -55,3 +61,57 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_uri ON ingestion_jobs(uri);
 CREATE INDEX IF NOT EXISTS idx_semantic_chunks_document_uri ON semantic_chunks(document_uri);
 CREATE INDEX IF NOT EXISTS idx_knowledge_links_source_uri ON knowledge_links(source_uri);
 CREATE INDEX IF NOT EXISTS idx_knowledge_links_target_uri ON knowledge_links(target_uri);
+
+CREATE TABLE IF NOT EXISTS extraction_batches (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    source_uri TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    status TEXT NOT NULL,
+    template_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    instructions TEXT,
+    parent_batch_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    committed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS candidate_ontologies (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    batch_id TEXT NOT NULL REFERENCES extraction_batches(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    schema JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+    review_note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS candidate_graph_items (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    batch_id TEXT NOT NULL REFERENCES extraction_batches(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source_span JSONB NOT NULL DEFAULT '{}'::jsonb,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+    status TEXT NOT NULL,
+    review_note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS graph_evidence (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    graph_item_id TEXT NOT NULL,
+    source_uri TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    template_id TEXT,
+    evidence_text TEXT,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_extraction_batches_source_uri ON extraction_batches(source_uri);
+CREATE INDEX IF NOT EXISTS idx_candidate_graph_items_batch_id ON candidate_graph_items(batch_id);
+CREATE INDEX IF NOT EXISTS idx_graph_evidence_graph_item_id ON graph_evidence(graph_item_id);
+CREATE INDEX IF NOT EXISTS idx_graph_evidence_source_uri ON graph_evidence(source_uri);

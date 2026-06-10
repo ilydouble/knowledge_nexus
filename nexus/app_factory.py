@@ -20,6 +20,15 @@ from nexus.cloudreve.oauth import (
     resolve_oauth_settings,
 )
 from nexus.graph.neo4j_store import Neo4jGraphStore
+from nexus.knowledge_os.models import CandidateEdit, CandidateExtractionRequest
+from nexus.knowledge_os.services import (
+    CandidateExtractionService,
+    CandidateReviewService,
+    EvidenceService,
+    GraphCommitService,
+)
+from nexus.knowledge_os.postgres_store import PostgresKnowledgeOSStore
+from nexus.knowledge_os.store import InMemoryKnowledgeOSStore, KnowledgeOSStore
 from nexus.models import GraphRagRequest, KnowledgeLayer, LinkCreate, SemanticSearchRequest, SyncRequest
 from nexus.repositories.base import NexusRepository
 from nexus.repositories.memory import InMemoryRepository
@@ -41,6 +50,10 @@ from nexus.vector.milvus_store import MilvusVectorStore
 class GraphAskRequest(BaseModel):
     question: str
     requested_by: str = "system"
+
+
+class CandidatePatchRequest(BaseModel):
+    edits: list[CandidateEdit]
 
 
 def _processing_result_to_dict(result: Any) -> dict[str, Any]:
@@ -70,6 +83,12 @@ def build_repository(settings: Settings) -> NexusRepository:
     raise ValueError(f"Unsupported NEXUS_STORAGE_BACKEND: {settings.nexus_storage_backend}")
 
 
+def build_knowledge_os_store(settings: Settings, repository: NexusRepository | None = None) -> KnowledgeOSStore:
+    if isinstance(repository, PostgresRepository) or (repository is None and settings.nexus_storage_backend == "postgres"):
+        return PostgresKnowledgeOSStore(settings.database_url)
+    return InMemoryKnowledgeOSStore()
+
+
 def create_application(repository: NexusRepository | None = None, settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Knowledge Nexus API", version="0.1.0")
     app.add_middleware(
@@ -88,6 +107,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     app.state.settings = app_settings
     app.state.repository = repo
     app.state.scanner = CloudreveScanner(CloudreveClient(), repo)
+    app.state.knowledge_os_store = build_knowledge_os_store(app_settings, repo)
 
     # Neo4j graph store — used by the /api/graph endpoint.
     # Falls back gracefully if Neo4j is not configured.
@@ -143,6 +163,9 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
 
     def get_repository() -> NexusRepository:
         return repo
+
+    def get_knowledge_os_store() -> KnowledgeOSStore:
+        return app.state.knowledge_os_store
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -397,6 +420,90 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     @app.post("/api/graphrag/ask")
     def graphrag_ask(request: GraphRagRequest, repository: NexusRepository = Depends(get_repository)):
         return GraphRagService(repository, permission_filter).ask(request)
+
+    # ------------------------------------------------------------------
+    # Knowledge OS admin endpoints
+    # ------------------------------------------------------------------
+
+    @app.post("/api/admin/candidates/extract")
+    def admin_extract_candidates(
+        request: CandidateExtractionRequest,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        service = CandidateExtractionService(store)
+        batch = service.run(request)
+        return service.describe_batch(batch.id)
+
+    @app.get("/api/admin/candidates/{batch_id}")
+    def admin_get_candidate_batch(
+        batch_id: str,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        try:
+            return CandidateExtractionService(store).describe_batch(batch_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.patch("/api/admin/candidates/{batch_id}")
+    def admin_patch_candidate_batch(
+        batch_id: str,
+        request: CandidatePatchRequest,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        try:
+            updated = CandidateReviewService(store).apply_edits(batch_id, request.edits)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"batch_id": batch_id, "updated": [item.model_dump(mode="json") for item in updated]}
+
+    @app.post("/api/admin/candidates/{batch_id}/preview")
+    def admin_preview_candidate_batch(
+        batch_id: str,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        try:
+            return GraphCommitService(store, repository=repo).preview(batch_id).model_dump(mode="json")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/admin/candidates/{batch_id}/commit")
+    def admin_commit_candidate_batch(
+        batch_id: str,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        try:
+            return GraphCommitService(store, repository=repo).commit(batch_id).model_dump(mode="json")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/admin/graph/evidence")
+    def admin_graph_evidence(
+        graph_item_id: str | None = None,
+        source_uri: str | None = None,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        if graph_item_id:
+            return EvidenceService(store, repository=repo).explain(graph_item_id)
+        evidence = store.list_graph_evidence(source_uri=source_uri)
+        return {"evidence": [item.model_dump(mode="json") for item in evidence]}
+
+    @app.post("/api/admin/documents/{uri:path}/mark-source-deleted")
+    def admin_mark_source_deleted(
+        uri: str,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        return EvidenceService(store, repository=repo).mark_source_deleted(uri)
+
+    @app.post("/api/admin/documents/{uri:path}/purge")
+    def admin_purge_knowledge(
+        uri: str,
+        payload: dict[str, str] | None = None,
+        store: KnowledgeOSStore = Depends(get_knowledge_os_store),
+    ) -> dict[str, Any]:
+        mode = (payload or {}).get("mode") or "knowledge"
+        return EvidenceService(store, repository=repo).purge(uri, mode=mode)
 
     # ------------------------------------------------------------------
     # Cloudreve full-scan endpoints
