@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from knowledge_os.application.services import (
     CandidateExtractionService,
@@ -14,12 +14,16 @@ from knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
 from knowledge_os.infrastructure.store import KnowledgeOSStore
 from nexus.repositories.base import NexusRepository
 
+if TYPE_CHECKING:
+    from knowledge_os.application.extraction_pipeline import CandidateExtractionPipeline
+
 
 def register_knowledge_os_tools(
     mcp: Any,
     *,
     store: KnowledgeOSStore,
     get_repository: Callable[[], NexusRepository],
+    extraction_pipeline: CandidateExtractionPipeline | None = None,
 ) -> dict[str, Callable[..., str]]:
     """Register Pi-Agent-facing Knowledge OS tools and return them for tests."""
 
@@ -33,7 +37,52 @@ def register_knowledge_os_tools(
         template_ids_json: str = "[]",
         parent_batch_id: str | None = None,
     ) -> str:
-        """Create a candidate extraction batch without committing it to the graph."""
+        """Extract knowledge from a Cloudreve file into a candidate batch (not committed).
+
+        Two modes:
+        - Auto (recommended): leave candidate_entities_json/candidate_relations_json empty.
+          The pipeline downloads the file, parses it, runs LLM extraction, and stores
+          the results as candidates for Pi-Agent review.
+        - Manual feed: provide pre-built candidate JSON arrays directly.
+        """
+        entities = _json_array(candidate_entities_json)
+        relations = _json_array(candidate_relations_json)
+        template_ids = [str(item) for item in _json_array(template_ids_json)]
+
+        # ── Auto-extract mode ──────────────────────────────────────────────────
+        if not entities and not relations:
+            if extraction_pipeline is None:
+                return json.dumps({
+                    "error": (
+                        "Auto-extraction unavailable: CandidateExtractionPipeline not initialised. "
+                        "Ensure a Cloudreve access token and LLM API key are configured, "
+                        "or supply candidate_entities_json/candidate_relations_json manually."
+                    )
+                }, ensure_ascii=False)
+            try:
+                result = extraction_pipeline.run(
+                    uri,
+                    instructions=instructions,
+                    requested_by=requested_by,
+                    parent_batch_id=parent_batch_id,
+                    template_ids=template_ids or None,
+                )
+                service = CandidateExtractionService(store)
+                return json.dumps(
+                    {
+                        **service.describe_batch(result.batch.id),
+                        "doc_type": result.doc_type,
+                        "extraction_mode": "auto",
+                        "warnings": result.warnings,
+                        "next_actions": ["update_candidate_items", "preview_graph_changes", "commit_candidate_batch"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except Exception as exc:
+                return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+        # ── Manual-feed mode ───────────────────────────────────────────────────
         service = CandidateExtractionService(store)
         batch = service.run(
             CandidateExtractionRequest(
@@ -41,14 +90,15 @@ def register_knowledge_os_tools(
                 requested_by=requested_by,
                 instructions=instructions,
                 parent_batch_id=parent_batch_id,
-                candidate_entities=_json_array(candidate_entities_json),
-                candidate_relations=_json_array(candidate_relations_json),
-                template_ids=[str(item) for item in _json_array(template_ids_json)],
+                candidate_entities=entities,
+                candidate_relations=relations,
+                template_ids=template_ids,
             )
         )
         return json.dumps(
             {
                 **service.describe_batch(batch.id),
+                "extraction_mode": "manual",
                 "next_actions": ["update_candidate_items", "preview_graph_changes", "commit_candidate_batch"],
             },
             ensure_ascii=False,

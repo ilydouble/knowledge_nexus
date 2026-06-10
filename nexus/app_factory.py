@@ -412,7 +412,19 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     def graphrag_ask(request: GraphRagRequest, repository: NexusRepository = Depends(get_repository)):
         return GraphRagService(repository, permission_filter).ask(request)
 
-    register_knowledge_os_api(app, repository=repo, get_store=get_knowledge_os_store)
+    # Build CandidateExtractionPipeline — lazy, returns None if prerequisites missing
+    from knowledge_os.application.extraction_pipeline import build_candidate_extraction_pipeline
+    _extraction_pipeline = build_candidate_extraction_pipeline(app_settings, app.state.knowledge_os_store)
+
+    def get_extraction_pipeline():
+        return _extraction_pipeline
+
+    register_knowledge_os_api(
+        app,
+        repository=repo,
+        get_store=get_knowledge_os_store,
+        get_extraction_pipeline=get_extraction_pipeline,
+    )
 
     # ------------------------------------------------------------------
     # Cloudreve full-scan endpoints

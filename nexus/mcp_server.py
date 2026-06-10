@@ -190,10 +190,14 @@ def find_documents_by_tag(tag: str) -> str:
     )
 
 
+from knowledge_os.application.extraction_pipeline import build_candidate_extraction_pipeline
+_extraction_pipeline = build_candidate_extraction_pipeline(settings, _knowledge_os_store)
+
 _knowledge_os_tools = register_knowledge_os_tools(
     mcp,
     store=_knowledge_os_store,
     get_repository=_get_repo,
+    extraction_pipeline=_extraction_pipeline,
 )
 
 run_candidate_extraction = _knowledge_os_tools["run_candidate_extraction"]

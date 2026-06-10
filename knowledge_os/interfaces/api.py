@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
@@ -16,6 +16,9 @@ from knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
 from knowledge_os.infrastructure.store import KnowledgeOSStore
 from nexus.repositories.base import NexusRepository
 
+if TYPE_CHECKING:
+    from knowledge_os.application.extraction_pipeline import CandidateExtractionPipeline
+
 
 class CandidatePatchRequest(BaseModel):
     edits: list[CandidateEdit]
@@ -26,6 +29,7 @@ def register_knowledge_os_api(
     *,
     repository: NexusRepository,
     get_store: Callable[[], KnowledgeOSStore],
+    get_extraction_pipeline: Callable[[], CandidateExtractionPipeline | None] | None = None,
 ) -> None:
     """Register Knowledge OS admin routes on an existing FastAPI app."""
 
@@ -34,9 +38,41 @@ def register_knowledge_os_api(
         request: CandidateExtractionRequest,
         store: KnowledgeOSStore = Depends(get_store),
     ) -> dict[str, Any]:
+        """Extract candidates. Auto-mode when no entities/relations are provided."""
+        has_candidates = bool(request.candidate_entities or request.candidate_relations)
+
+        # Auto-extract mode: trigger CandidateExtractionPipeline
+        if not has_candidates and get_extraction_pipeline is not None:
+            pipeline = get_extraction_pipeline()
+            if pipeline is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Auto-extraction unavailable: missing Cloudreve token or LLM API key.",
+                )
+            try:
+                result = pipeline.run(
+                    request.uri,
+                    instructions=request.instructions,
+                    requested_by=request.requested_by,
+                    parent_batch_id=request.parent_batch_id,
+                    template_ids=request.template_ids or None,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            service = CandidateExtractionService(store)
+            return {
+                **service.describe_batch(result.batch.id),
+                "doc_type": result.doc_type,
+                "extraction_mode": "auto",
+                "warnings": result.warnings,
+            }
+
+        # Manual-feed mode
         service = CandidateExtractionService(store)
         batch = service.run(request)
-        return service.describe_batch(batch.id)
+        return {**service.describe_batch(batch.id), "extraction_mode": "manual"}
 
     @app.get("/api/admin/candidates/{batch_id}")
     def admin_get_candidate_batch(
