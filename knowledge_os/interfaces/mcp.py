@@ -191,6 +191,64 @@ def register_knowledge_os_tools(
         result = EvidenceService(store, repository=get_repository()).purge(uri, mode=mode)
         return json.dumps(result, ensure_ascii=False, indent=2)
 
+    # ── Phase 5: governance tools ──────────────────────────────────────────────
+
+    @mcp.tool()
+    def get_knowledge_dashboard() -> str:
+        """Return a health dashboard: batch counts, graph item status, stale evidence alerts.
+
+        Use this to get an overview of the knowledge base state before deciding
+        what to extract, review, or purge.
+        """
+        from knowledge_os.application.governance import GovernanceService
+        result = GovernanceService(store).dashboard()
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    @mcp.tool()
+    def list_candidate_batches(
+        status: str = "",
+        source_uri: str = "",
+        limit: int = 20,
+    ) -> str:
+        """List candidate batches with optional filters.
+
+        Args:
+            status: Filter by batch status (pending, reviewing, committed). Empty = all.
+            source_uri: Filter by exact source URI. Empty = all.
+            limit: Maximum batches to return (default 20).
+        """
+        from knowledge_os.application.governance import GovernanceService
+        result = GovernanceService(store).list_batches(
+            status=status or None,
+            source_uri=source_uri or None,
+            limit=limit,
+        )
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    @mcp.tool()
+    def bulk_review_batch(batch_id: str, action: str) -> str:
+        """Bulk-accept or bulk-reject all pending items in a candidate batch.
+
+        Args:
+            batch_id: The candidate batch ID.
+            action: Either "accept" or "reject".
+
+        Use this when you have reviewed the batch summary and want to approve
+        or discard all pending candidates at once, then call commit_candidate_batch.
+        """
+        from knowledge_os.application.governance import GovernanceService
+        try:
+            svc = GovernanceService(store)
+            if action == "accept":
+                result = svc.bulk_accept(batch_id)
+            elif action == "reject":
+                result = svc.bulk_reject(batch_id)
+            else:
+                result = {"error": f"Unknown action '{action}'. Use 'accept' or 'reject'."}
+        except (KeyError, ValueError) as exc:
+            result = {"error": str(exc)}
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
     return {
         "run_candidate_extraction": run_candidate_extraction,
         "get_candidate_batch": get_candidate_batch,
@@ -201,6 +259,9 @@ def register_knowledge_os_tools(
         "ask_knowledge_graph": ask_knowledge_graph,
         "mark_source_deleted": mark_source_deleted,
         "purge_knowledge": purge_knowledge,
+        "get_knowledge_dashboard": get_knowledge_dashboard,
+        "list_candidate_batches": list_candidate_batches,
+        "bulk_review_batch": bulk_review_batch,
     }
 
 
