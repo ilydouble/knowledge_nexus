@@ -17,6 +17,7 @@ tree on demand (or on a timer).  It does two things each scan:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -132,22 +133,34 @@ class CloudreveScanner:
 
             # ── Reverse pass: clean up stale knowledge data ────────────────────
             # Only runs when a delete_fn is supplied; skips URIs that are not
-            # file:// or cloudreve:// paths (e.g. entity:// nodes).
+            # cloudreve:// paths (e.g. entity:// nodes).
             deleted = 0
             if delete_fn is not None:
                 processed_uris = {
                     doc.uri for doc in self.repository.list_documents()
-                    if doc.uri and not doc.uri.startswith("entity://")
+                    if doc.uri and doc.uri.startswith("cloudreve://")
                 }
                 stale_uris = processed_uris - discovered_set
-                for uri in stale_uris:
-                    logger.info("Stale URI detected (no longer in Cloudreve): %s", uri)
-                    try:
-                        import asyncio
-                        await asyncio.to_thread(delete_fn, uri)
-                        deleted += 1
-                    except Exception as exc:
-                        logger.warning("Failed to delete stale URI %s: %s", uri, exc)
+
+                if stale_uris:
+                    if len(stale_uris) == len(processed_uris) and len(discovered) == 0:
+                        # All known files appear stale AND Cloudreve returned nothing.
+                        # This could mean auth failure or a genuine full wipe.
+                        # Proceed but log prominently so the operator can verify.
+                        logger.warning(
+                            "Cloudreve returned 0 files but knowledge store has %d document(s). "
+                            "Proceeding with full cleanup — verify Cloudreve is reachable and "
+                            "files are intentionally deleted.",
+                            len(processed_uris),
+                        )
+
+                    for uri in stale_uris:
+                        logger.info("Stale URI detected (no longer in Cloudreve): %s", uri)
+                        try:
+                            await asyncio.to_thread(delete_fn, uri)
+                            deleted += 1
+                        except Exception as exc:
+                            logger.warning("Failed to delete stale URI %s: %s", uri, exc)
             result.files_deleted = deleted
 
             result.status = "done"

@@ -421,24 +421,28 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             result = scanner.last_result()
             return {"status": "already_scanning", **result.to_dict()}
 
-        # Build a delete pipeline on-demand for the manual scan trigger.
-        # This ensures stale data is cleaned up even outside the worker process.
-        _delete_fn = None
-        if _neo4j_store is not None and _llm_api_key:
-            try:
-                from nexus.services.pipeline import SemanticPipeline
-                _scan_pipeline = SemanticPipeline(
-                    cloudreve_token=None,
-                    settings=app_settings,
-                    repository=repo,
-                    enable_neo4j=True,
-                    enable_milvus=bool(app_settings.milvus_host),
-                )
-                _delete_fn = _scan_pipeline.delete_file
-            except Exception:
-                pass
+        # Build a lightweight delete function from the already-initialised stores.
+        # Deleting knowledge data does NOT require an LLM API key.
+        import logging as _log
+        _del_logger = _log.getLogger(__name__)
 
-        background_tasks.add_task(scanner.scan, delete_fn=_delete_fn)
+        def _scan_delete_fn(uri: str) -> None:
+            if _neo4j_store:
+                try:
+                    _neo4j_store.delete_file(uri)
+                except Exception as exc:
+                    _del_logger.warning("Neo4j delete failed for %s: %s", uri, exc)
+            if _milvus_store:
+                try:
+                    _milvus_store.delete_chunks_by_uri(uri)
+                except Exception as exc:
+                    _del_logger.warning("Milvus delete failed for %s: %s", uri, exc)
+            try:
+                repo.delete_document(uri)
+            except Exception as exc:
+                _del_logger.warning("Repo delete failed for %s: %s", uri, exc)
+
+        background_tasks.add_task(scanner.scan, delete_fn=_scan_delete_fn)
         return {"status": "started"}
 
     return app
