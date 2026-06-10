@@ -1,5 +1,0 @@
-"""Compatibility export for ``nexus.knowledge_os.infrastructure.postgres_store``."""
-
-from knowledge_os.infrastructure.postgres_store import PostgresKnowledgeOSStore
-
-__all__ = ["PostgresKnowledgeOSStore"]
