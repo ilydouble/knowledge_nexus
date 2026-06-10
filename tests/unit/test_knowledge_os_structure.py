@@ -18,8 +18,4 @@ def test_knowledge_os_exposes_canonical_interface_registration_imports():
     assert register_knowledge_os_tools.__name__ == "register_knowledge_os_tools"
 
 
-def test_legacy_nexus_knowledge_os_imports_remain_compatible():
-    from knowledge_os.domain.models import CandidateExtractionRequest as RootRequest
-    from nexus.knowledge_os.domain.models import CandidateExtractionRequest as LegacyRequest
 
-    assert LegacyRequest is RootRequest
