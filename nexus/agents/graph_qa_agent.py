@@ -105,6 +105,8 @@ def create_graph_qa_agent(
             query: Natural-language query to search for.
             limit: Number of chunks to return (default 5).
         """
+        if milvus_store is None:
+            return json.dumps({"error": "Vector store not configured"})
         vector = embedding_service.embed(query)
         chunks = milvus_store.search(vector, limit=min(limit, 20))
         return json.dumps(

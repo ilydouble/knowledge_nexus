@@ -7,6 +7,8 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from pydantic import BaseModel
+
 from nexus.cloudreve.client import CloudreveClient
 from nexus.cloudreve.oauth import (
     CloudreveOAuthConfigStore,
@@ -29,9 +31,16 @@ from nexus.services.graphrag import GraphRagService
 from nexus.services.ingestion import IngestionService
 from nexus.services.links import LinkService
 from nexus.services.permissions import PermissionFilter
+from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
 from nexus.services.pipeline import SemanticPipeline
 from nexus.services.semantic import SemanticProcessor
 from nexus.settings import Settings
+from nexus.vector.milvus_store import MilvusVectorStore
+
+
+class GraphAskRequest(BaseModel):
+    question: str
+    requested_by: str = "system"
 
 
 def _processing_result_to_dict(result: Any) -> dict[str, Any]:
@@ -92,6 +101,45 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             )
         except Exception:
             pass
+
+    # Embedding service — shared between pipeline and Agent3
+    _llm_api_key = app_settings.zhipu_api_key or app_settings.openai_api_key
+    if _llm_api_key:
+        _embedding_service: BigModelEmbeddingService | DeterministicEmbeddingService = BigModelEmbeddingService(
+            api_key=_llm_api_key,
+            model=app_settings.embedding_model,
+            dimensions=app_settings.embedding_dimensions,
+            base_url=app_settings.embedding_base_url,
+        )
+    else:
+        _embedding_service = DeterministicEmbeddingService(dimensions=64)
+
+    # Milvus vector store — used by Agent3 vector_search tool
+    _milvus_store: MilvusVectorStore | None = None
+    if app_settings.vector_backend.lower() == "milvus" and app_settings.milvus_host:
+        try:
+            _milvus_store = MilvusVectorStore(
+                host=app_settings.milvus_host,
+                port=app_settings.milvus_port,
+                dimensions=_embedding_service.dimensions,
+            )
+        except Exception:
+            pass
+
+    # Graph Q&A Agent (Agent3) — built lazily; None when stores are unavailable
+    _graph_qa_agent = None
+    if _neo4j_store is not None and _llm_api_key:
+        try:
+            from nexus.agents.graph_qa_agent import create_graph_qa_agent  # lazy
+            _graph_qa_agent = create_graph_qa_agent(
+                neo4j_store=_neo4j_store,
+                milvus_store=_milvus_store,  # type: ignore[arg-type]  # None → tool skips gracefully
+                embedding_service=_embedding_service,  # type: ignore[arg-type]
+                settings=app_settings,
+            )
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("Could not initialise graph QA agent: %s", _exc)
 
     def get_repository() -> NexusRepository:
         return repo
@@ -324,6 +372,21 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         else:
             result = _neo4j_store.full_graph()
         return result
+
+    @app.post("/api/graph/ask")
+    def graph_ask(request: GraphAskRequest) -> dict[str, Any]:
+        """Answer a natural-language question using the knowledge graph (Agent3).
+
+        Requires Neo4j to be configured and an LLM API key to be set.
+        """
+        if _graph_qa_agent is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Graph Q&A agent is not available (Neo4j or LLM API key not configured)",
+            )
+        from nexus.agents.graph_qa_agent import ask as agent_ask
+        answer = agent_ask(request.question, _graph_qa_agent)
+        return {"question": request.question, "answer": answer}
 
     @app.post("/api/search/semantic")
     def semantic_search(request: SemanticSearchRequest, repository: NexusRepository = Depends(get_repository)):

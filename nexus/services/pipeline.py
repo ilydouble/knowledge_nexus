@@ -67,7 +67,19 @@ class SemanticPipeline:
         self.settings = settings or Settings.from_env()
         self.cloudreve_client = CloudreveClient(token=cloudreve_token)
         self.file_gate = FileGate()
-        self.document_classifier = DocumentClassifier()
+
+        # Build classifier agent when an API key is available (graceful degradation)
+        _classifier_agent = None
+        _llm_api_key = self.settings.zhipu_api_key or self.settings.openai_api_key
+        if _llm_api_key:
+            try:
+                from nexus.agents.classifier_agent import create_classifier_agent  # lazy
+                _classifier_agent = create_classifier_agent(self.settings)
+                logger.info("Classifier agent (Agent1) initialised")
+            except Exception as _exc:
+                logger.warning("Could not initialise classifier agent: %s", _exc)
+
+        self.document_classifier = DocumentClassifier(agent=_classifier_agent)
         self.kgraph_context_builder = KGraphContextBuilder()
         self.hyper_extract_bridge = HyperExtractRuntimeBridge(
             enabled=self.settings.hyper_extract_runtime_enabled,
