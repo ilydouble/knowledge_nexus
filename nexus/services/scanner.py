@@ -24,9 +24,8 @@ from datetime import UTC, datetime
 from typing import Callable
 
 from nexus.cloudreve.client import CloudreveClient, CloudreveError
-from nexus.models import SyncRequest
+from nexus.models import IngestionJob
 from nexus.repositories.base import NexusRepository
-from nexus.services.ingestion import IngestionService
 
 logger = logging.getLogger("nexus.scanner")
 
@@ -69,7 +68,6 @@ class CloudreveScanner:
     def __init__(self, client: CloudreveClient, repository: NexusRepository) -> None:
         self.client = client
         self.repository = repository
-        self.ingestion = IngestionService(repository)
         self._last_result: ScanResult = ScanResult()
         self._scanning = False
 
@@ -127,7 +125,7 @@ class CloudreveScanner:
             queued = 0
             for uri in discovered:
                 if uri not in known_uris:
-                    self.ingestion.sync(SyncRequest(uri=uri, requested_by=requested_by))
+                    self.repository.add_job(IngestionJob(uri=uri, requested_by=requested_by, status="pending", stage="queued"))
                     queued += 1
             result.files_queued = queued
 

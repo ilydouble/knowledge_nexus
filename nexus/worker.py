@@ -8,8 +8,7 @@ import logging
 
 from nexus.cloudreve.client import CloudreveClient
 from nexus.app_factory import build_repository
-from nexus.services.events import FileEventHandler
-from nexus.services.ingestion import IngestionService
+from nexus.models import IngestionJob
 from nexus.services.pipeline import SemanticPipeline
 from nexus.services.scanner import CloudreveScanner
 from nexus.settings import Settings
@@ -33,12 +32,49 @@ class Worker:
     def __init__(self) -> None:
         self.settings = Settings.from_env()
         self.repository = build_repository(self.settings)
-        self.ingestion = IngestionService(self.repository)
-        self.handler = FileEventHandler(self.repository)
         self.client = CloudreveClient()
         self.scanner = CloudreveScanner(self.client, self.repository)
         self.pipeline: SemanticPipeline | None = None
         self._initialized = False
+
+    # ------------------------------------------------------------------
+    # Inlined job management (was IngestionService + FileEventHandler)
+    # ------------------------------------------------------------------
+
+    def _create_job(self, uri: str, requested_by: str = "worker") -> IngestionJob:
+        job = IngestionJob(uri=uri, requested_by=requested_by, status="pending", stage="queued")
+        return self.repository.add_job(job)
+
+    def _mark_running(self, job_id: str) -> IngestionJob:
+        job = self.repository.get_job(job_id)
+        job.status = "running"
+        return self.repository.update_job(job)
+
+    def _mark_stage(self, job_id: str, stage: str) -> IngestionJob:
+        job = self.repository.get_job(job_id)
+        job.stage = stage
+        return self.repository.update_job(job)
+
+    def _mark_succeeded(self, job_id: str) -> IngestionJob:
+        job = self.repository.get_job(job_id)
+        job.status = "succeeded"
+        return self.repository.update_job(job)
+
+    def _mark_failed(self, job_id: str, error: str, stage: str = "download", error_code: str | None = None) -> IngestionJob:
+        job = self.repository.get_job(job_id)
+        job.status = "failed"
+        job.stage = stage
+        if hasattr(job, "error"):
+            job.error = error
+        if hasattr(job, "error_code") and error_code:
+            job.error_code = error_code
+        return self.repository.update_job(job)
+
+    def _mark_skipped(self, job_id: str, reason: str) -> IngestionJob:
+        job = self.repository.get_job(job_id)
+        job.status = "skipped"
+        job.stage = reason
+        return self.repository.update_job(job)
     
     def _ensure_pipeline(self) -> None:
         """Lazily initialize the pipeline."""
@@ -96,7 +132,7 @@ class Worker:
             logger.debug("Job already queued for %s, skipping SSE duplicate", uri)
             return
 
-        self.handler.handle_events([event])
+        self._create_job(uri, requested_by="worker")
         logger.info("Queued pending job for %s (event: %s)", uri, event_type)
 
     async def _process_one(self, job_id: str, uri: str) -> None:
@@ -106,8 +142,8 @@ class Worker:
             logger.warning("Pipeline not available, skipping %s", uri)
             return
 
-        self.ingestion.mark_running(job_id)
-        self.ingestion.mark_stage(job_id, "download")
+        self._mark_running(job_id)
+        self._mark_stage(job_id, "download")
 
         try:
             result = await asyncio.to_thread(
@@ -116,10 +152,10 @@ class Worker:
                 "batch-processor",
             )
             if result.skipped:
-                self.ingestion.mark_skipped(job_id, result.skip_reason or "unsupported file type")
+                self._mark_skipped(job_id, result.skip_reason or "unsupported file type")
                 logger.info("Gate skipped %s: %s", uri, result.skip_reason)
             elif result.success:
-                self.ingestion.mark_succeeded(job_id)
+                self._mark_succeeded(job_id)
                 logger.info(
                     "Processed %s: entities=%d relations=%d chunks=%d time=%dms",
                     uri,
@@ -129,7 +165,7 @@ class Worker:
                     result.processing_time_ms,
                 )
             else:
-                self.ingestion.mark_failed(
+                self._mark_failed(
                     job_id,
                     result.error or "processing failed",
                     stage=result.stage or "download",
@@ -137,7 +173,7 @@ class Worker:
                 )
                 logger.error("Failed to process %s: %s", uri, result.error)
         except Exception as exc:
-            self.ingestion.mark_failed(job_id, str(exc), stage="download", error_code="worker_exception")
+            self._mark_failed(job_id, str(exc), stage="download", error_code="worker_exception")
             logger.error("Error processing %s: %s", uri, exc)
 
     async def _handle_delete(self, uri: str) -> None:

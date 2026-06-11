@@ -1,6 +1,5 @@
 import asyncio
 
-from nexus.models import IngestionJob
 from nexus.worker import Worker, watch_cloudreve_events
 
 
@@ -8,16 +7,15 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
     seen = {}
 
     class FakeRepository:
+        def __init__(self):
+            self.jobs = []
+
+        def add_job(self, job):
+            self.jobs.append(job)
+            return job
+
         def list_jobs(self):
-            return []
-
-    class FakeHandler:
-        def __init__(self, repository):
-            seen["repository"] = repository
-
-        def handle_events(self, events):
-            seen["events"] = events
-            return []
+            return list(self.jobs)
 
     class FakeSettings:
         cloudreve_token = "token-123"
@@ -30,10 +28,9 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
         async def iter_file_events(self, uri="cloudreve://my", client_id=None):
             seen["uri"] = uri
             seen["client_id"] = client_id
-            yield {"raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
+            yield {"type": "event", "raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
     monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
-    monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
 
@@ -41,8 +38,6 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
 
     assert seen["token"] is None
     assert seen["client_id"] == "knowledge-nexus-worker"
-    # process_event now only queues; handle_events is still called to create the job
-    assert seen["events"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
 
 
 def test_worker_queues_file_events_without_immediate_processing(monkeypatch):
@@ -74,16 +69,6 @@ def test_worker_queues_file_events_without_immediate_processing(monkeypatch):
         def list_jobs(self):
             return list(self.jobs)
 
-    class FakeHandler:
-        def __init__(self, repository):
-            self.repository = repository
-
-        def handle_events(self, events):
-            seen["jobs_for"] = events
-            job = IngestionJob(uri=events[0]["uri"], requested_by="worker")
-            self.repository.add_job(job)
-            return [job]
-
     class FakeSettings:
         cloudreve_token = "token-123"
         cloudreve_client_id = "client-id"
@@ -100,15 +85,12 @@ def test_worker_queues_file_events_without_immediate_processing(monkeypatch):
             yield {"type": "event", "raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
     monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
-    monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
 
     asyncio.run(watch_cloudreve_events())
 
-    # Job was created via handle_events
-    assert seen["jobs_for"] == [{"type": "update", "uri": "cloudreve://my/demo.md"}]
-    # A pending job was queued for the URI
+    # A pending job was queued for the URI via _create_job → repository.add_job
     assert "cloudreve://my/demo.md" in seen.get("queued_uris", [])
     # Pipeline was NOT called (no "processed_uri" recorded)
     assert "processed_uri" not in seen
@@ -134,19 +116,23 @@ def test_worker_uses_configured_repository_builder(monkeypatch):
             if False:
                 yield {}
 
-    class FakeHandler:
-        def __init__(self, repository):
-            seen["handler_repository"] = repository
-
     repository = FakeRepository()
+    captured = {}
+
+    original_build = __import__("nexus.worker", fromlist=["build_repository"]).build_repository
+
+    def capturing_build(settings):
+        captured["settings"] = settings
+        return repository
+
     monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
     monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
-    monkeypatch.setattr("nexus.worker.FileEventHandler", FakeHandler)
-    monkeypatch.setattr("nexus.worker.build_repository", lambda settings: repository)
+    monkeypatch.setattr("nexus.worker.build_repository", capturing_build)
 
     asyncio.run(watch_cloudreve_events())
 
-    assert seen["handler_repository"] is repository
+    assert captured["settings"] is not None
+    assert isinstance(captured["settings"], FakeSettings)
 
 
 def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):

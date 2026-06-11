@@ -2,12 +2,12 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
-from nexus.api import create_app
+from nexus.app_factory import create_application
 from nexus.repositories.memory import InMemoryRepository
 
 
 def make_client():
-    return TestClient(create_app(repository=InMemoryRepository()))
+    return TestClient(create_application(repository=InMemoryRepository()))
 
 
 def test_admin_candidate_api_supports_extract_review_preview_commit_and_evidence():
