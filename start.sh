@@ -71,7 +71,7 @@ start_service "FastAPI 后端 (8000)" "api" \
 
 # ② Worker
 start_service "Worker" "worker" \
-  conda run -n "$CONDA_ENV" python -m nexus.worker
+  conda run -n "$CONDA_ENV" python -m apps.worker.main
 
 # ③ Web 控制台
 if [ "$NO_WEB" = false ]; then
@@ -88,7 +88,7 @@ fi
 # ④ MCP Server（可选）
 if [ "$NO_MCP" = false ]; then
   start_service "MCP Server" "mcp" \
-    conda run -n "$CONDA_ENV" python -m nexus.mcp_server
+    conda run -n "$CONDA_ENV" python -m apps.mcp.server
 fi
 
 # ── 汇总 ──────────────────────────────────────────────────
