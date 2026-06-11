@@ -114,12 +114,10 @@ class CloudreveScanner:
             # Determine which URIs are already known to the system.
             # Exclude failed jobs so they get re-queued on the next scan.
             # Include skipped jobs so permanently-skipped files are never re-queued.
-            known_uris: set[str] = set()
-            known_uris.update(
+            known_uris: set[str] = set(
                 job.uri for job in self.repository.list_jobs()
                 if job.status in ("pending", "running", "succeeded", "skipped")
             )
-            known_uris.update(doc.uri for doc in self.repository.list_documents())
 
             # ── Forward pass: queue newly-discovered files ─────────────────────
             queued = 0
@@ -135,8 +133,10 @@ class CloudreveScanner:
             deleted = 0
             if delete_fn is not None:
                 processed_uris = {
-                    doc.uri for doc in self.repository.list_documents()
-                    if doc.uri and doc.uri.startswith("cloudreve://")
+                    job.uri for job in self.repository.list_jobs()
+                    if job.status == "succeeded"
+                    and job.uri
+                    and job.uri.startswith("cloudreve://")
                 }
                 stale_uris = processed_uris - discovered_set
 

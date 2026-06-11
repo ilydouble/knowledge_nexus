@@ -19,7 +19,6 @@ from knowledge_os.infrastructure.store import KnowledgeOSStore
 if TYPE_CHECKING:
     from core.graph.neo4j_store import Neo4jGraphStore
     from core.models import KnowledgeLayer
-    from core.repositories.base import NexusRepository
 
 # Chinese + ASCII stop-words to skip during keyword extraction
 _STOP = frozenset(
@@ -52,11 +51,9 @@ class GraphQAService:
         self,
         store: KnowledgeOSStore,
         neo4j_store: Neo4jGraphStore | None = None,
-        repository: NexusRepository | None = None,
     ) -> None:
         self.store = store
         self.neo4j_store = neo4j_store
-        self.repository = repository
 
     def ask(self, question: str, *, include_candidates: bool = False) -> dict[str, Any]:
         keywords = _extract_keywords(question)
@@ -128,17 +125,6 @@ class GraphQAService:
                     if e.status not in ("stale", "purged")
                 ]
 
-        # ── Repository documents ──────────────────────────────────────────────
-        documents: list[dict[str, Any]] = []
-        if self.repository is not None:
-            for doc in self.repository.list_documents():
-                documents.append({
-                    "uri": doc.uri,
-                    "summary": doc.summary,
-                    "tags": doc.tags,
-                    "entities": doc.entities[:20],
-                })
-
         # ── Candidate batches (optional) ──────────────────────────────────────
         candidate_context: list[dict[str, Any]] = []
         if include_candidates:
@@ -164,7 +150,6 @@ class GraphQAService:
             "entities": list(entity_hits.values()),
             "relations": list(edges_seen.values()),
             "evidence": evidence_map,
-            "documents": documents,
             "candidate_context": candidate_context,
             "answer_hint": (
                 "Use the entities, relations and evidence above to answer the question. "

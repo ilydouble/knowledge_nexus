@@ -1,4 +1,4 @@
-from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
+from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink
 from core.repositories.base import NexusRepository
 from core.repositories.memory import InMemoryRepository
 
@@ -7,18 +7,9 @@ def exercise_repository_contract(repository: NexusRepository):
     job = repository.add_job(IngestionJob(uri="cloudreve://my/a.md", requested_by="user-1"))
     assert repository.get_job(job.id) == job
 
-    document = repository.add_document(
-        SemanticDocument(
-            uri="cloudreve://my/a.md",
-            summary="Infrared sensor notes",
-            tags=["infrared", "sensor"],
-            entities=["Infrared"],
-            chunks=[TextChunk(id="chunk-1", text="Infrared sensor notes", index=1)],
-            requested_by="user-1",
-        )
-    )
-    assert repository.get_document(document.uri) == document
-    assert repository.list_documents() == [document]
+    updated = repository.update_job(job.model_copy(update={"status": "succeeded"}))
+    assert updated.status == "succeeded"
+    assert any(j.uri == "cloudreve://my/a.md" for j in repository.list_jobs())
 
     link = repository.add_link(
         KnowledgeLink(
@@ -34,9 +25,8 @@ def exercise_repository_contract(repository: NexusRepository):
     )
     assert repository.list_links() == [link]
 
-    nodes, edges = repository.graph()
-    assert any(node.uri == "cloudreve://my/a.md" for node in nodes)
-    assert edges[0].relation == "RELATED_TO"
+    # delete_document is a no-op in the new architecture but must exist
+    repository.delete_document("cloudreve://my/a.md")
 
 
 def test_in_memory_repository_satisfies_repository_contract():

@@ -5,9 +5,8 @@ from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
 
-from core.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
+from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink
 
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "db" / "schema.sql"
@@ -99,61 +98,6 @@ class PostgresRepository:
             ).fetchall()
         return [self._job_from_row(row) for row in rows]
 
-    def add_document(self, document: SemanticDocument) -> SemanticDocument:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO semantic_documents (uri, tenant_id, summary, tags, entities, requested_by)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (uri) DO UPDATE SET
-                    summary = EXCLUDED.summary,
-                    tags = EXCLUDED.tags,
-                    entities = EXCLUDED.entities,
-                    requested_by = EXCLUDED.requested_by
-                """,
-                (document.uri, self.tenant_id, document.summary, Jsonb(document.tags), Jsonb(document.entities), document.requested_by),
-            )
-            connection.execute("DELETE FROM semantic_chunks WHERE document_uri = %s AND tenant_id = %s", (document.uri, self.tenant_id))
-            for chunk in document.chunks:
-                connection.execute(
-                    """
-                    INSERT INTO semantic_chunks (id, tenant_id, document_uri, chunk_index, text)
-                    VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    (chunk.id, self.tenant_id, document.uri, chunk.index, chunk.text),
-                )
-            connection.commit()
-        return document
-
-    def get_document(self, uri: str) -> SemanticDocument | None:
-        with self._connect() as connection:
-            document_row = connection.execute(
-                "SELECT * FROM semantic_documents WHERE uri = %s AND tenant_id = %s",
-                (uri, self.tenant_id),
-            ).fetchone()
-            if document_row is None:
-                return None
-            chunk_rows = connection.execute(
-                "SELECT * FROM semantic_chunks WHERE document_uri = %s AND tenant_id = %s ORDER BY chunk_index ASC",
-                (uri, self.tenant_id),
-            ).fetchall()
-        return self._document_from_rows(document_row, chunk_rows)
-
-    def list_documents(self) -> list[SemanticDocument]:
-        with self._connect() as connection:
-            document_rows = connection.execute(
-                "SELECT * FROM semantic_documents WHERE tenant_id = %s ORDER BY uri ASC",
-                (self.tenant_id,),
-            ).fetchall()
-            chunk_rows = connection.execute(
-                "SELECT * FROM semantic_chunks WHERE tenant_id = %s ORDER BY document_uri ASC, chunk_index ASC",
-                (self.tenant_id,),
-            ).fetchall()
-        chunks_by_uri: dict[str, list[dict[str, Any]]] = {}
-        for chunk in chunk_rows:
-            chunks_by_uri.setdefault(chunk["document_uri"], []).append(chunk)
-        return [self._document_from_rows(row, chunks_by_uri.get(row["uri"], [])) for row in document_rows]
-
     def add_link(self, link: KnowledgeLink) -> KnowledgeLink:
         with self._connect() as connection:
             connection.execute(
@@ -201,40 +145,6 @@ class PostgresRepository:
             ).fetchall()
         return [self._link_from_row(row) for row in rows]
 
-    def graph(self) -> tuple[list[GraphNode], list[GraphEdge]]:
-        documents = self.list_documents()
-        links = self.list_links()
-        nodes: dict[str, GraphNode] = {}
-        for document in documents:
-            nodes[self._node_id_for_uri(document.uri)] = GraphNode(
-                id=self._node_id_for_uri(document.uri),
-                uri=document.uri,
-                label=self._label_for_uri(document.uri),
-                summary=document.summary,
-                layer=None,
-                accessible=True,
-                properties={"tags": document.tags, "entities": document.entities, "chunk_count": len(document.chunks)},
-            )
-        edges: list[GraphEdge] = []
-        for link in links:
-            source_id = self._node_id_for_uri(link.source_uri)
-            target_id = self._node_id_for_uri(link.target_uri)
-            nodes.setdefault(source_id, GraphNode(id=source_id, uri=link.source_uri, label=self._label_for_uri(link.source_uri), layer=link.layer))
-            nodes.setdefault(target_id, GraphNode(id=target_id, uri=link.target_uri, label=self._label_for_uri(link.target_uri), layer=link.layer))
-            edges.append(
-                GraphEdge(
-                    id=link.id,
-                    source=source_id,
-                    target=target_id,
-                    relation=link.relation,
-                    layer=link.layer,
-                    owner_scope=link.owner_scope,
-                    source_file_uri=link.source_file_uri,
-                    visibility=link.visibility,
-                )
-            )
-        return list(nodes.values()), edges
-
     def delete_document(self, uri: str) -> None:
         """Delete a document record and its associated chunks from Postgres."""
         with self._connect() as connection:
@@ -271,17 +181,6 @@ class PostgresRepository:
         )
 
     @staticmethod
-    def _document_from_rows(document_row: dict[str, Any], chunk_rows: list[dict[str, Any]]) -> SemanticDocument:
-        return SemanticDocument(
-            uri=document_row["uri"],
-            summary=document_row["summary"],
-            tags=list(document_row["tags"]),
-            entities=list(document_row["entities"]),
-            chunks=[TextChunk(id=row["id"], text=row["text"], index=row["chunk_index"]) for row in chunk_rows],
-            requested_by=document_row["requested_by"],
-        )
-
-    @staticmethod
     def _link_from_row(row: dict[str, Any]) -> KnowledgeLink:
         return KnowledgeLink(
             id=row["id"],
@@ -297,10 +196,4 @@ class PostgresRepository:
             created_at=row["created_at"],
         )
 
-    @staticmethod
-    def _node_id_for_uri(uri: str) -> str:
-        return "file:" + uri
 
-    @staticmethod
-    def _label_for_uri(uri: str) -> str:
-        return uri.rsplit("/", 1)[-1] or uri

@@ -175,7 +175,6 @@ def register_knowledge_os_tools(
         result = GraphQAService(
             store=store,
             neo4j_store=neo4j_store,
-            repository=get_repository(),
         ).ask(question, include_candidates=include_candidates)
         return json.dumps(result, ensure_ascii=False, indent=2)
 

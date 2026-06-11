@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
+from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink
 from core.repositories.postgres import PostgresRepository, initialize_postgres_schema
 from core.settings import Settings
 
@@ -10,7 +10,7 @@ from core.settings import Settings
 pytestmark = pytest.mark.skipif(os.getenv("RUN_INTEGRATION") != "1", reason="set RUN_INTEGRATION=1 to run Postgres integration tests")
 
 
-def test_postgres_repository_persists_jobs_documents_chunks_and_links():
+def test_postgres_repository_persists_jobs_and_links():
     settings = Settings.from_env()
     initialize_postgres_schema(settings.database_url)
     repository = PostgresRepository(settings.database_url)
@@ -22,21 +22,7 @@ def test_postgres_repository_persists_jobs_documents_chunks_and_links():
 
     job = repository.add_job(IngestionJob(uri=unique_uri, requested_by="integration-user"))
     assert repository.get_job(job.id) == job
-
-    document = repository.add_document(
-        SemanticDocument(
-            uri=unique_uri,
-            summary="Persisted infrared sensor notes",
-            tags=["infrared", "sensor"],
-            entities=["Infrared"],
-            chunks=[
-                TextChunk(id=f"{unique_uri}#chunk-1", text="Persisted infrared sensor notes", index=1),
-                TextChunk(id=f"{unique_uri}#chunk-2", text="Thermal calibration context", index=2),
-            ],
-            requested_by="integration-user",
-        )
-    )
-    assert repository.get_document(unique_uri) == document
+    assert any(j.uri == unique_uri for j in repository.list_jobs())
 
     link = repository.add_link(
         KnowledgeLink(
@@ -50,11 +36,7 @@ def test_postgres_repository_persists_jobs_documents_chunks_and_links():
             created_by="integration-user",
         )
     )
-    assert repository.list_links() == [link]
-
-    nodes, edges = repository.graph()
-    assert any(node.uri == unique_uri and node.summary == document.summary for node in nodes)
-    assert any(edge.id == link.id and edge.relation == "RELATED_TO" for edge in edges)
+    assert any(lnk.id == link.id and lnk.relation == "RELATED_TO" for lnk in repository.list_links())
 
     repository.delete_by_uri_for_tests(unique_uri)
     repository.delete_by_uri_for_tests(target_uri)
