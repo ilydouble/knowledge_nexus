@@ -1,6 +1,6 @@
-from nexus.models import IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
-from nexus.repositories.base import NexusRepository
-from nexus.repositories.memory import InMemoryRepository
+from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
+from core.repositories.base import NexusRepository
+from core.repositories.memory import InMemoryRepository
 
 
 def exercise_repository_contract(repository: NexusRepository):

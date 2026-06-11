@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nexus.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLink, SemanticDocument
+from core.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLink, SemanticDocument
 
 
 class InMemoryRepository:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from neo4j import GraphDatabase
 
-from nexus.models import GraphEdge, GraphNode, GraphResult, KnowledgeLayer
+from core.models import GraphEdge, GraphNode, GraphResult, KnowledgeLayer
 
 
 class Neo4jGraphStore:

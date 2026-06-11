@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 import requests
 
-from nexus.cloudreve.oauth import CloudreveOAuthError, CloudreveOAuthTokenStore, refresh_oauth_tokens
-from nexus.settings import Settings
+from core.cloudreve.oauth import CloudreveOAuthError, CloudreveOAuthTokenStore, refresh_oauth_tokens
+from core.settings import Settings
 
 
 class CloudreveError(RuntimeError):

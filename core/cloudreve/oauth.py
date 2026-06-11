@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from nexus.settings import Settings
+from core.settings import Settings
 
 
 class CloudreveOAuthError(RuntimeError):

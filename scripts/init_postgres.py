@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from nexus.repositories.postgres import initialize_postgres_schema
-from nexus.settings import Settings
+from core.repositories.postgres import initialize_postgres_schema
+from core.settings import Settings
 
 
 def main() -> None:

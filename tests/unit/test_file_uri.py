@@ -1,4 +1,4 @@
-from nexus.cloudreve.uri import FileUri
+from core.cloudreve.uri import FileUri
 
 
 def test_file_uri_parses_cloudreve_user_space_with_path_and_query():

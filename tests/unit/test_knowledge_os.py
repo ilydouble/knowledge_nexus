@@ -6,7 +6,7 @@ from knowledge_os.application.services import (
 )
 from knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
 from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
-from nexus.repositories.memory import InMemoryRepository
+from core.repositories.memory import InMemoryRepository
 
 
 def test_candidate_lifecycle_previews_and_commits_only_accepted_items():

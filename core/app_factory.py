@@ -8,8 +8,8 @@ from fastapi.responses import RedirectResponse
 
 from pydantic import BaseModel
 
-from nexus.cloudreve.client import CloudreveClient
-from nexus.cloudreve.oauth import (
+from core.cloudreve.client import CloudreveClient
+from core.cloudreve.oauth import (
     CloudreveOAuthConfigStore,
     CloudreveOAuthError,
     CloudreveOAuthTokenStore,
@@ -18,19 +18,19 @@ from nexus.cloudreve.oauth import (
     refresh_oauth_tokens,
     resolve_oauth_settings,
 )
-from nexus.graph.neo4j_store import Neo4jGraphStore
+from core.graph.neo4j_store import Neo4jGraphStore
 from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
 from knowledge_os.infrastructure.postgres_store import PostgresKnowledgeOSStore
 from knowledge_os.infrastructure.store import KnowledgeOSStore
 from knowledge_os.interfaces.api import register_knowledge_os_api
-from nexus.models import KnowledgeLayer
-from nexus.repositories.base import NexusRepository
-from nexus.repositories.memory import InMemoryRepository
-from nexus.repositories.postgres import PostgresRepository
-from nexus.services.scanner import CloudreveScanner
-from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
-from nexus.settings import Settings
-from nexus.vector.milvus_store import MilvusVectorStore
+from core.models import KnowledgeLayer
+from core.repositories.base import NexusRepository
+from core.repositories.memory import InMemoryRepository
+from core.repositories.postgres import PostgresRepository
+from core.services.scanner import CloudreveScanner
+from core.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
+from core.settings import Settings
+from core.vector.milvus_store import MilvusVectorStore
 
 
 class GraphAskRequest(BaseModel):
@@ -112,7 +112,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     _graph_qa_agent = None
     if _neo4j_store is not None and _llm_api_key:
         try:
-            from nexus.agents.graph_qa_agent import create_graph_qa_agent  # lazy
+            from core.agents.graph_qa_agent import create_graph_qa_agent  # lazy
             _graph_qa_agent = create_graph_qa_agent(
                 neo4j_store=_neo4j_store,
                 milvus_store=_milvus_store,  # type: ignore[arg-type]  # None → tool skips gracefully
@@ -239,7 +239,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
                 status_code=503,
                 detail="Graph Q&A agent is not available (Neo4j or LLM API key not configured)",
             )
-        from nexus.agents.graph_qa_agent import ask as agent_ask
+        from core.agents.graph_qa_agent import ask as agent_ask
         answer = agent_ask(request.question, _graph_qa_agent)
         return {"question": request.question, "answer": answer}
 

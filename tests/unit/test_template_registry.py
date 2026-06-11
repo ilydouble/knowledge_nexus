@@ -1,4 +1,4 @@
-from nexus.services.template_adapter import (
+from core.services.template_adapter import (
     HyperExtractTemplateAdapter,
     TemplateRegistry,
     TemplateSelector,

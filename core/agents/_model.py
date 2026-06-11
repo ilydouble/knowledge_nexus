@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from strands.models.openai import OpenAIModel
 
-from nexus.settings import Settings
+from core.settings import Settings
 
 
 def build_model(settings: Settings | None = None) -> OpenAIModel:

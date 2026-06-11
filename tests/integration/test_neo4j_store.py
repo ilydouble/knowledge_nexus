@@ -2,9 +2,9 @@ import os
 
 import pytest
 
-from nexus.graph.neo4j_store import Neo4jGraphStore
-from nexus.models import GraphEdge, GraphNode, KnowledgeLayer
-from nexus.settings import Settings
+from core.graph.neo4j_store import Neo4jGraphStore
+from core.models import GraphEdge, GraphNode, KnowledgeLayer
+from core.settings import Settings
 
 
 pytestmark = pytest.mark.skipif(os.getenv("RUN_INTEGRATION") != "1", reason="set RUN_INTEGRATION=1 to run Neo4j integration tests")

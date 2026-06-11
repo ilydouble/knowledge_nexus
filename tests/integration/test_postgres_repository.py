@@ -2,9 +2,9 @@ import os
 
 import pytest
 
-from nexus.models import IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
-from nexus.repositories.postgres import PostgresRepository, initialize_postgres_schema
-from nexus.settings import Settings
+from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
+from core.repositories.postgres import PostgresRepository, initialize_postgres_schema
+from core.settings import Settings
 
 
 pytestmark = pytest.mark.skipif(os.getenv("RUN_INTEGRATION") != "1", reason="set RUN_INTEGRATION=1 to run Postgres integration tests")

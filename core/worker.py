@@ -6,19 +6,19 @@ import asyncio
 import json
 import logging
 
-from nexus.cloudreve.client import CloudreveClient
-from nexus.app_factory import build_repository
-from nexus.models import IngestionJob
-from nexus.services.pipeline import SemanticPipeline
-from nexus.services.scanner import CloudreveScanner
-from nexus.settings import Settings
+from core.cloudreve.client import CloudreveClient
+from core.app_factory import build_repository
+from core.models import IngestionJob
+from core.services.pipeline import SemanticPipeline
+from core.services.scanner import CloudreveScanner
+from core.settings import Settings
 
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("nexus.worker")
+logger = logging.getLogger("core.worker")
 
 
 class Worker:

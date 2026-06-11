@@ -1,7 +1,7 @@
-from nexus.app_factory import build_repository, create_application
-from nexus.repositories.memory import InMemoryRepository
-from nexus.repositories.postgres import PostgresRepository
-from nexus.settings import Settings
+from core.app_factory import build_repository, create_application
+from core.repositories.memory import InMemoryRepository
+from core.repositories.postgres import PostgresRepository
+from core.settings import Settings
 
 
 def test_build_repository_defaults_to_memory_backend(monkeypatch, tmp_path):

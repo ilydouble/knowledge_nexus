@@ -9,8 +9,8 @@ from typing import Any
 
 import httpx
 
-from nexus.services.template_adapter import HyperExtractTemplateAdapter
-from nexus.settings import Settings
+from core.services.template_adapter import HyperExtractTemplateAdapter
+from core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

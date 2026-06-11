@@ -1,7 +1,7 @@
-from nexus.services.content_parser import ParsedContent
-from nexus.services.document_classifier import DocumentClassifier
-from nexus.services.kgraph_context import KGraphContextBuilder
-from nexus.services.template_adapter import HyperExtractTemplateAdapter, TEMPLATE_MAP
+from core.services.content_parser import ParsedContent
+from core.services.document_classifier import DocumentClassifier
+from core.services.kgraph_context import KGraphContextBuilder
+from core.services.template_adapter import HyperExtractTemplateAdapter, TEMPLATE_MAP
 
 
 def test_context_builder_exports_traceable_kgraph_json_contract():

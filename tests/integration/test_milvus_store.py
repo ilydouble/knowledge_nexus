@@ -2,9 +2,9 @@ import os
 
 import pytest
 
-from nexus.services.embedding import DeterministicEmbeddingService
-from nexus.settings import Settings
-from nexus.vector.milvus_store import MilvusChunk, MilvusVectorStore
+from core.services.embedding import DeterministicEmbeddingService
+from core.settings import Settings
+from core.vector.milvus_store import MilvusChunk, MilvusVectorStore
 
 
 pytestmark = pytest.mark.skipif(os.getenv("RUN_INTEGRATION") != "1", reason="set RUN_INTEGRATION=1 to run Milvus integration tests")

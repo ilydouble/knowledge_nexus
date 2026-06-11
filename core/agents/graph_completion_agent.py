@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 
 from strands import Agent, tool
 
-from nexus.agents._model import build_model
-from nexus.models import KnowledgeLayer
-from nexus.settings import Settings
+from core.agents._model import build_model
+from core.models import KnowledgeLayer
+from core.settings import Settings
 
 if TYPE_CHECKING:
-    from nexus.graph.neo4j_store import Neo4jGraphStore
+    from core.graph.neo4j_store import Neo4jGraphStore
 
 logger = logging.getLogger(__name__)
 

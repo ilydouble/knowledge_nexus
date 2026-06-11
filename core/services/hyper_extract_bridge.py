@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-from nexus.services.template_adapter import TEMPLATES_DIR
+from core.services.template_adapter import TEMPLATES_DIR
 
 logger = logging.getLogger(__name__)
 

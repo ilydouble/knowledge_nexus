@@ -2,8 +2,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 
-from nexus.services.hyper_extract_bridge import HyperExtractRuntimeBridge
-from nexus.services.hyper_extract_bridge import make_template_factory_runner
+from core.services.hyper_extract_bridge import HyperExtractRuntimeBridge
+from core.services.hyper_extract_bridge import make_template_factory_runner
 
 
 def _template(template_id="general/base_graph", template_type="graph"):

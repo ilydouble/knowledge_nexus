@@ -16,11 +16,11 @@ from knowledge_os.domain.models import CandidateBatch, CandidateExtractionReques
 from knowledge_os.infrastructure.store import KnowledgeOSStore
 
 if TYPE_CHECKING:
-    from nexus.cloudreve.client import CloudreveClient
-    from nexus.services.content_parser import ContentParserService
-    from nexus.services.document_classifier import DocumentClassifier
-    from nexus.services.knowledge_extractor import KnowledgeExtractor
-    from nexus.settings import Settings
+    from core.cloudreve.client import CloudreveClient
+    from core.services.content_parser import ContentParserService
+    from core.services.document_classifier import DocumentClassifier
+    from core.services.knowledge_extractor import KnowledgeExtractor
+    from core.settings import Settings
 
 logger = logging.getLogger("knowledge_os.extraction_pipeline")
 
@@ -63,7 +63,7 @@ class CandidateExtractionPipeline:
         parent_batch_id: str | None = None,
         template_ids: list[str] | None = None,
     ) -> ExtractionPipelineResult:
-        from nexus.services.file_gate import FileGate
+        from core.services.file_gate import FileGate
 
         filename = uri.split("/")[-1] or "unknown"
         warnings: list[str] = []
@@ -173,11 +173,11 @@ def build_candidate_extraction_pipeline(
     store: KnowledgeOSStore,
 ) -> CandidateExtractionPipeline | None:
     """Build a pipeline from settings.  Returns None if prerequisites are missing."""
-    from nexus.cloudreve.client import CloudreveClient
-    from nexus.cloudreve.oauth import CloudreveOAuthTokenStore
-    from nexus.services.content_parser import ContentParserService
-    from nexus.services.document_classifier import DocumentClassifier
-    from nexus.services.knowledge_extractor import KnowledgeExtractor
+    from core.cloudreve.client import CloudreveClient
+    from core.cloudreve.oauth import CloudreveOAuthTokenStore
+    from core.services.content_parser import ContentParserService
+    from core.services.document_classifier import DocumentClassifier
+    from core.services.knowledge_extractor import KnowledgeExtractor
 
     api_key = settings.zhipu_api_key or settings.openai_api_key
     if not api_key:

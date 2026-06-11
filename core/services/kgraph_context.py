@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from nexus.services.content_parser import ParsedContent
-from nexus.services.document_classifier import CATEGORIES, ClassificationResult
-from nexus.services.knowledge_extractor import _EMERGENCY_FALLBACK_ONTOLOGY
-from nexus.services.template_adapter import HyperExtractTemplateAdapter, TemplateRegistry, TemplateSelector
+from core.services.content_parser import ParsedContent
+from core.services.document_classifier import CATEGORIES, ClassificationResult
+from core.services.knowledge_extractor import _EMERGENCY_FALLBACK_ONTOLOGY
+from core.services.template_adapter import HyperExtractTemplateAdapter, TemplateRegistry, TemplateSelector
 
 
 _PAGE_MARKER_RE = re.compile(r"---\s*Page\s+(\d+)\s*---", re.IGNORECASE)

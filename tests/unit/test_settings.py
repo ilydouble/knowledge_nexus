@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from nexus.settings import Settings
+from core.settings import Settings
 
 
 def test_settings_loads_database_url_from_environment(monkeypatch):

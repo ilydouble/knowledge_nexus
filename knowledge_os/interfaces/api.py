@@ -15,7 +15,7 @@ from knowledge_os.application.services import (
 )
 from knowledge_os.domain.models import CandidateEdit, CandidateExtractionRequest
 from knowledge_os.infrastructure.store import KnowledgeOSStore
-from nexus.repositories.base import NexusRepository
+from core.repositories.base import NexusRepository
 
 if TYPE_CHECKING:
     from knowledge_os.application.extraction_pipeline import CandidateExtractionPipeline

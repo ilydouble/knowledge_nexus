@@ -8,22 +8,22 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from nexus.cloudreve.client import CloudreveClient
-from nexus.graph.neo4j_store import Neo4jGraphStore
-from nexus.models import GraphEdge, GraphNode, KnowledgeLayer, SemanticDocument, TextChunk
-from nexus.repositories.base import NexusRepository
-from nexus.services.content_parser import ContentParserService, ParsedContent
-from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
-from nexus.services.document_classifier import DocumentClassifier
-from nexus.services.file_gate import FileGate
-from nexus.services.kgraph_context import KGraphContextBuilder
-from nexus.services.hyper_extract_bridge import HyperExtractRuntimeBridge
-from nexus.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
-from nexus.settings import Settings
-from nexus.vector.milvus_store import MilvusChunk, MilvusVectorStore
+from core.cloudreve.client import CloudreveClient
+from core.graph.neo4j_store import Neo4jGraphStore
+from core.models import GraphEdge, GraphNode, KnowledgeLayer, SemanticDocument, TextChunk
+from core.repositories.base import NexusRepository
+from core.services.content_parser import ContentParserService, ParsedContent
+from core.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
+from core.services.document_classifier import DocumentClassifier
+from core.services.file_gate import FileGate
+from core.services.kgraph_context import KGraphContextBuilder
+from core.services.hyper_extract_bridge import HyperExtractRuntimeBridge
+from core.services.knowledge_extractor import ExtractedKnowledge, KnowledgeExtractor
+from core.settings import Settings
+from core.vector.milvus_store import MilvusChunk, MilvusVectorStore
 
 
-logger = logging.getLogger("nexus.pipeline")
+logger = logging.getLogger("core.pipeline")
 
 
 @dataclass
@@ -73,7 +73,7 @@ class SemanticPipeline:
         _llm_api_key = self.settings.zhipu_api_key or self.settings.openai_api_key
         if _llm_api_key:
             try:
-                from nexus.agents.classifier_agent import create_classifier_agent  # lazy
+                from core.agents.classifier_agent import create_classifier_agent  # lazy
                 _classifier_agent = create_classifier_agent(self.settings)
                 logger.info("Classifier agent (Agent1) initialised")
             except Exception as _exc:

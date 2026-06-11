@@ -1,5 +1,5 @@
-from nexus.cloudreve.oauth import CloudreveOAuthConfigStore, CloudreveOAuthTokenStore, exchange_authorization_code, resolve_oauth_settings
-from nexus.settings import Settings
+from core.cloudreve.oauth import CloudreveOAuthConfigStore, CloudreveOAuthTokenStore, exchange_authorization_code, resolve_oauth_settings
+from core.settings import Settings
 
 
 def test_oauth_token_store_saves_and_loads_tokens(tmp_path):
@@ -80,7 +80,7 @@ def test_exchange_authorization_code_includes_cloudreve_error_text(monkeypatch):
         def json(self):
             return {"error": "invalid_grant", "error_description": "code expired"}
 
-    monkeypatch.setattr("nexus.cloudreve.oauth.requests.post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("core.cloudreve.oauth.requests.post", lambda *args, **kwargs: FakeResponse())
     settings = Settings(cloudreve_oauth_client_id="client-id", cloudreve_oauth_client_secret="client-secret")
 
     try:

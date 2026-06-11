@@ -7,7 +7,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from nexus.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
+from core.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLayer, KnowledgeLink, SemanticDocument, TextChunk
 
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "db" / "schema.sql"

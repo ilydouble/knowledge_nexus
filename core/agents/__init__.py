@@ -8,10 +8,10 @@ graph_qa_agent     — Answer natural-language questions from the knowledge grap
 graph_completion_agent — Find graph gaps and suggest missing links
 """
 
-from nexus.agents.classifier_agent import create_classifier_agent
-from nexus.agents.graph_completion_agent import create_graph_completion_agent
-from nexus.agents.graph_qa_agent import create_graph_qa_agent
-from nexus.agents.schema_agent import create_schema_agent
+from core.agents.classifier_agent import create_classifier_agent
+from core.agents.graph_completion_agent import create_graph_completion_agent
+from core.agents.graph_qa_agent import create_graph_qa_agent
+from core.agents.schema_agent import create_schema_agent
 
 __all__ = [
     "create_classifier_agent",

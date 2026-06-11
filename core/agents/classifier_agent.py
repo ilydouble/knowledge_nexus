@@ -12,9 +12,9 @@ import logging
 
 from strands import Agent, tool
 
-from nexus.agents._model import build_model
-from nexus.services.template_adapter import TemplateRegistry
-from nexus.settings import Settings
+from core.agents._model import build_model
+from core.services.template_adapter import TemplateRegistry
+from core.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def create_classifier_agent(settings: Settings | None = None) -> Agent:
     @tool
     def list_doc_types() -> str:
         """List all available document type categories with their descriptions."""
-        from nexus.services.document_classifier import CATEGORIES  # avoid circular at module level
+        from core.services.document_classifier import CATEGORIES  # avoid circular at module level
         return json.dumps(
             [{"doc_type": k, "description": v["description"]} for k, v in CATEGORIES.items()],
             ensure_ascii=False,

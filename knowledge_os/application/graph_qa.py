@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING, Any
 from knowledge_os.infrastructure.store import KnowledgeOSStore
 
 if TYPE_CHECKING:
-    from nexus.graph.neo4j_store import Neo4jGraphStore
-    from nexus.models import KnowledgeLayer
-    from nexus.repositories.base import NexusRepository
+    from core.graph.neo4j_store import Neo4jGraphStore
+    from core.models import KnowledgeLayer
+    from core.repositories.base import NexusRepository
 
 # Chinese + ASCII stop-words to skip during keyword extraction
 _STOP = frozenset(
@@ -66,7 +66,7 @@ class GraphQAService:
 
         # ── Neo4j search ─────────────────────────────────────────────────────
         if self.neo4j_store is not None:
-            from nexus.models import KnowledgeLayer
+            from core.models import KnowledgeLayer
             all_layers = [KnowledgeLayer.L1, KnowledgeLayer.L2, KnowledgeLayer.L3]
 
             for kw in keywords:

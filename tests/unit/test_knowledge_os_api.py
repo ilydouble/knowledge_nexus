@@ -2,8 +2,8 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
-from nexus.app_factory import create_application
-from nexus.repositories.memory import InMemoryRepository
+from core.app_factory import create_application
+from core.repositories.memory import InMemoryRepository
 
 
 def make_client():

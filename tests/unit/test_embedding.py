@@ -1,6 +1,6 @@
 import pytest
 
-from nexus.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
+from core.services.embedding import BigModelEmbeddingService, DeterministicEmbeddingService
 
 
 def test_deterministic_embedding_is_stable_and_normalized():

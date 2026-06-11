@@ -1,7 +1,7 @@
 import json
 
-from nexus.services.document_classifier import CATEGORIES, DocumentClassifier
-from nexus.services.knowledge_extractor import (
+from core.services.document_classifier import CATEGORIES, DocumentClassifier
+from core.services.knowledge_extractor import (
     ExtractedKnowledge,
     KnowledgeExtractor,
     MIN_ENTITY_CONFIDENCE,

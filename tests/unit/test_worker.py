@@ -1,6 +1,6 @@
 import asyncio
 
-from nexus.worker import Worker, watch_cloudreve_events
+from core.worker import Worker, watch_cloudreve_events
 
 
 def test_worker_passes_cloudreve_client_id(monkeypatch):
@@ -30,9 +30,9 @@ def test_worker_passes_cloudreve_client_id(monkeypatch):
             seen["client_id"] = client_id
             yield {"type": "event", "raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
-    monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
-    monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
-    monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
+    monkeypatch.setattr("core.worker.build_repository", lambda settings: FakeRepository())
+    monkeypatch.setattr("core.worker.Settings.from_env", lambda: FakeSettings())
+    monkeypatch.setattr("core.worker.CloudreveClient", FakeClient)
 
     asyncio.run(watch_cloudreve_events())
 
@@ -84,9 +84,9 @@ def test_worker_queues_file_events_without_immediate_processing(monkeypatch):
             yield {"type": "connected"}
             yield {"type": "event", "raw": '{"type":"update","uri":"cloudreve://my/demo.md"}'}
 
-    monkeypatch.setattr("nexus.worker.build_repository", lambda settings: FakeRepository())
-    monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
-    monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
+    monkeypatch.setattr("core.worker.build_repository", lambda settings: FakeRepository())
+    monkeypatch.setattr("core.worker.Settings.from_env", lambda: FakeSettings())
+    monkeypatch.setattr("core.worker.CloudreveClient", FakeClient)
 
     asyncio.run(watch_cloudreve_events())
 
@@ -119,15 +119,15 @@ def test_worker_uses_configured_repository_builder(monkeypatch):
     repository = FakeRepository()
     captured = {}
 
-    original_build = __import__("nexus.worker", fromlist=["build_repository"]).build_repository
+    original_build = __import__("core.worker", fromlist=["build_repository"]).build_repository
 
     def capturing_build(settings):
         captured["settings"] = settings
         return repository
 
-    monkeypatch.setattr("nexus.worker.Settings.from_env", lambda: FakeSettings())
-    monkeypatch.setattr("nexus.worker.CloudreveClient", FakeClient)
-    monkeypatch.setattr("nexus.worker.build_repository", capturing_build)
+    monkeypatch.setattr("core.worker.Settings.from_env", lambda: FakeSettings())
+    monkeypatch.setattr("core.worker.CloudreveClient", FakeClient)
+    monkeypatch.setattr("core.worker.build_repository", capturing_build)
 
     asyncio.run(watch_cloudreve_events())
 
@@ -161,7 +161,7 @@ def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):
     monkeypatch.setattr(worker, "run", fake_run)
     monkeypatch.setattr(worker, "scan_loop", fake_scan_loop)
     monkeypatch.setattr(worker, "process_pending_loop", fake_process_pending_loop)
-    monkeypatch.setattr("nexus.worker.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("core.worker.asyncio.sleep", fake_sleep)
 
     try:
         asyncio.run(worker.run_forever(reconnect_delay_seconds=0.01))

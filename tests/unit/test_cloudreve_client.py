@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import pytest
 
-from nexus.cloudreve.client import CloudreveClient, CloudreveError
+from core.cloudreve.client import CloudreveClient, CloudreveError
 
 
 class FakeResponse:

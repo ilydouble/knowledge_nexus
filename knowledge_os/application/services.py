@@ -15,11 +15,11 @@ from knowledge_os.domain.models import (
     GraphEvidence,
 )
 from knowledge_os.infrastructure.store import KnowledgeOSStore
-from nexus.models import GraphEdge, GraphNode, KnowledgeLayer, KnowledgeLink
-from nexus.repositories.base import NexusRepository
+from core.models import GraphEdge, GraphNode, KnowledgeLayer, KnowledgeLink
+from core.repositories.base import NexusRepository
 
 if TYPE_CHECKING:
-    from nexus.graph.neo4j_store import Neo4jGraphStore
+    from core.graph.neo4j_store import Neo4jGraphStore
 
 logger = logging.getLogger("knowledge_os.services")
 

@@ -12,9 +12,9 @@ import logging
 
 from strands import Agent, tool
 
-from nexus.agents._model import build_model
-from nexus.services.template_adapter import TemplateRegistry
-from nexus.settings import Settings
+from core.agents._model import build_model
+from core.services.template_adapter import TemplateRegistry
+from core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

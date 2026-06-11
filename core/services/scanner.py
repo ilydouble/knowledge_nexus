@@ -23,11 +23,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Callable
 
-from nexus.cloudreve.client import CloudreveClient, CloudreveError
-from nexus.models import IngestionJob
-from nexus.repositories.base import NexusRepository
+from core.cloudreve.client import CloudreveClient, CloudreveError
+from core.models import IngestionJob
+from core.repositories.base import NexusRepository
 
-logger = logging.getLogger("nexus.scanner")
+logger = logging.getLogger("core.scanner")
 
 
 @dataclass

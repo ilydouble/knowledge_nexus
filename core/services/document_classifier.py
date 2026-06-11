@@ -261,7 +261,7 @@ class DocumentClassifier:
         fallback: ClassificationResult,
     ) -> ClassificationResult:
         """Invoke the Strands classifier agent and merge result with fallback."""
-        from nexus.agents.classifier_agent import classify_with_agent  # lazy import
+        from core.agents.classifier_agent import classify_with_agent  # lazy import
 
         logger.info("Agent fallback triggered for '%s' (confidence=%.2f)", filename, fallback.confidence)
         doc_type, reason = classify_with_agent(filename, content_preview, self._agent)

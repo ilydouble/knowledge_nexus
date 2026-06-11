@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from nexus.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLink, SemanticDocument
+from core.models import GraphEdge, GraphNode, IngestionJob, KnowledgeLink, SemanticDocument
 
 
 class NexusRepository(Protocol):
