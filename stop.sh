@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Knowledge Nexus — 停止所有服务
+# Knowledge OS — 停止所有服务
 PIDS_FILE="$(cd "$(dirname "$0")" && pwd)/data/logs/.pids"
 
 if [ ! -f "$PIDS_FILE" ]; then
