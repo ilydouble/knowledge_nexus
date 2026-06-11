@@ -17,8 +17,9 @@
 ### 阶段 2：本体与产品结构设计
 - **状态：** complete
 - 执行的操作：
-  - 已开始整理园区本体、Pi-Agent 工具/技能/记忆和 KGraph 导出边界。
+  - 已开始整理园区本体、Pi-Agent 工具/技能/记忆和原生图谱构建边界。
   - 新增智慧园区图谱操作系统设计文档。
+  - 根据用户反馈，移除外部交付系统目标，改为 Pi-Agent + Knowledge OS 独立构图闭环。
 - 创建/修改的文件：
   - `docs/plans/2026-06-11-smart-campus-graph-os-design.md`
 
@@ -27,8 +28,9 @@
 - 执行的操作：
   - 新增 `smart_campus` 文档分类。
   - 新增 `nexus/smart_campus` 本体模板。
-  - 将模板选择器、适配器和 KGraph 上下文业务域接入 `smart_campus`。
+  - 将模板选择器、适配器和现有可追溯上下文构建器业务域接入 `smart_campus`。
   - 按 TDD 添加并验证分类、模板选择、适配器加载测试。
+  - 补充 `GraphWorkspace`、`CandidateBatch`、`PRODUCES_CANDIDATE`、`REVIEWS_CANDIDATE`、`COMMITS_TO_GRAPH`、`QUERIES_GRAPH`，表达 Pi-Agent 原生构图状态流转。
 - 创建/修改的文件：
   - `core/services/document_classifier.py`
   - `core/services/template_adapter.py`
@@ -41,7 +43,7 @@
 ### 阶段 4：验证与迭代
 - **状态：** complete
 - 执行的操作：
-  - 运行相关单元测试，验证分类器、模板注册器、KGraph 上下文和知识抽取相关行为。
+  - 运行相关单元测试，验证分类器、模板注册器、可追溯上下文和知识抽取相关行为。
 - 创建/修改的文件：
   - `progress.md`
 
@@ -50,20 +52,22 @@
 |------|------|---------|---------|------|
 | 资料读取 | 四份调研 Markdown + 仓库文档 | 能提炼需求和系统承接点 | 已提炼并记录 | 通过 |
 | TDD 红灯 | 新增 `smart_campus` 测试 | 因功能缺失失败 | 4 个相关失败符合预期 | 通过 |
-| 相关单元测试 | `pytest tests/unit/test_template_registry.py tests/unit/test_kgraph_context.py tests/unit/test_knowledge_extractor.py` | 全部通过 | 48 passed in 4.94s | 通过 |
+| 相关单元测试 | `pytest tests/unit/test_template_registry.py tests/unit/test_kgraph_context.py tests/unit/test_knowledge_extractor.py` | 全部通过 | 49 passed in 5.01s | 通过 |
+| Pi-Agent 原生构图红灯 | 新增模板测试 | 因缺少 `GraphWorkspace`/`CandidateBatch` 失败 | 1 个相关失败符合预期 | 通过 |
 
 ## 错误日志
 | 时间戳 | 错误 | 尝试次数 | 解决方案 |
 |--------|------|---------|---------|
 | 2026-06-11 | 暂无 | 0 | - |
 | 2026-06-11 | `smart_campus` 测试红灯，分类器误判为 `medical_record`，模板未映射 | 1 | 新增分类、模板映射和园区本体模板 |
+| 2026-06-11 | 用户调整方向：不用管外部交付系统 | 1 | 改为 Pi-Agent + Knowledge OS 原生构图闭环 |
 
 ## 五问重启检查
 | 问题 | 答案 |
 |------|------|
 | 我在哪里？ | 阶段 5：交付 |
 | 我要去哪里？ | 总结变更并确认下一步优先级 |
-| 目标是什么？ | 将园区调研材料转化为可交互、可迭代、可交付的智能图谱操作系统资产 |
+| 目标是什么？ | 将园区调研材料转化为可交互、可迭代、可独立构图和问答的 Pi-Agent 图谱操作系统资产 |
 | 我学到了什么？ | 见 findings.md |
 | 我做了什么？ | 见上方记录 |
 

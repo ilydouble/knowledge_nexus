@@ -102,3 +102,16 @@ def test_adapter_loads_smart_campus_ontology():
     relations = {relation["relation"] for relation in result.ontology["relations"]}
     assert {"Building", "Space", "Equipment", "Point", "FaultEvent"}.issubset(types)
     assert {"LOCATED_IN", "FEEDS", "HAS_POINT", "TRIGGERS"}.issubset(relations)
+
+
+def test_smart_campus_ontology_supports_pi_agent_native_graph_building():
+    adapter = HyperExtractTemplateAdapter()
+
+    result = adapter.adapt("smart_campus")
+
+    assert result is not None
+    types = {concept["type"] for concept in result.ontology["concepts"]}
+    relations = {relation["relation"] for relation in result.ontology["relations"]}
+    assert {"GraphWorkspace", "CandidateBatch"}.issubset(types)
+    assert {"PRODUCES_CANDIDATE", "REVIEWS_CANDIDATE", "COMMITS_TO_GRAPH", "QUERIES_GRAPH"}.issubset(relations)
+    assert "EXPORTS_TO" not in relations
