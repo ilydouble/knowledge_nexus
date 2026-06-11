@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Knowledge Nexus — 一键启动所有服务
+# Knowledge OS — 一键启动所有服务
 # 用法: ./start.sh [--no-mcp] [--no-web]
 set -euo pipefail
 
@@ -29,7 +29,7 @@ err()  { echo -e "${RED}✘${NC}  $*"; }
 # ── 前置检查 ──────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Knowledge Nexus — 启动检查"
+echo "  Knowledge OS — 启动检查"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 for name in kg-postgres kg-neo4j kg-redis; do
