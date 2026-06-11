@@ -1,4 +1,265 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+import GraphView from "./GraphView.jsx";
+
+const API_BASE = import.meta.env.VITE_NEXUS_API_BASE || "";
+
+async function api(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, options);
+  if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+  return res.json();
+}
+
+function post(path, body) {
+  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard() {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    api("/api/admin/dashboard").then(setData).catch((e) => setErr(e.message));
+  }, []);
+  if (err) return <p className="error">{err}</p>;
+  if (!data) return <p>加载中…</p>;
+  const { totals, alerts } = data;
+  return (
+    <div>
+      <h2>知识库仪表盘</h2>
+      <div className="metric-row">
+        <div className="metric-card"><div className="metric-value">{totals.batches}</div><div className="metric-label">批次</div></div>
+        <div className="metric-card"><div className="metric-value">{totals.items}</div><div className="metric-label">条目</div></div>
+        <div className="metric-card"><div className="metric-value">{totals.committed_items}</div><div className="metric-label">已入库</div></div>
+        <div className="metric-card"><div className="metric-value">{totals.evidence}</div><div className="metric-label">证据条数</div></div>
+      </div>
+      {alerts && alerts.length > 0 && (
+        <div className="alerts">
+          <h3>告警</h3>
+          {alerts.map((a, i) => <div key={i} className="alert-item">⚠ {a}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Batch list + review ──────────────────────────────────────────────────────
+function statusBadge(s) {
+  const colors = { pending: "#f59e0b", committed: "#10b981", rejected: "#ef4444", accepted: "#3b82f6" };
+  return <span style={{ background: colors[s] || "#6b7280", color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: 11 }}>{s}</span>;
+}
+
+function BatchDetail({ batchId, onBack }) {
+  const [batch, setBatch] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => api(`/api/admin/candidates/${batchId}`).then(setBatch), [batchId]);
+  useEffect(() => { load(); }, [load]);
+
+  async function bulkAction(action) {
+    setBusy(true); setMsg("");
+    try { await post(`/api/admin/candidates/${batchId}/${action}-all`); await load(); setMsg(`✓ ${action === "accept" ? "全部接受" : "全部拒绝"}成功`); }
+    catch (e) { setMsg("❌ " + e.message); }
+    finally { setBusy(false); }
+  }
+  async function doPreview() {
+    setBusy(true); setMsg(""); setPreview(null);
+    try { const p = await post(`/api/admin/candidates/${batchId}/preview`); setPreview(p); }
+    catch (e) { setMsg("❌ " + e.message); }
+    finally { setBusy(false); }
+  }
+  async function doCommit() {
+    if (!window.confirm("确认写入 Neo4j？")) return;
+    setBusy(true); setMsg("");
+    try { await post(`/api/admin/candidates/${batchId}/commit`); await load(); setMsg("✓ 已提交"); }
+    catch (e) { setMsg("❌ " + e.message); }
+    finally { setBusy(false); }
+  }
+
+  if (!batch) return <p>加载中…</p>;
+  return (
+    <div>
+      <button onClick={onBack}>← 返回列表</button>
+      <h3>批次 {batchId.slice(0, 8)}… — {statusBadge(batch.status)}</h3>
+      <p style={{ color: "#94a3b8" }}>{batch.source_uri}</p>
+      <div style={{ marginBottom: 8, display: "flex", gap: 8 }}>
+        <button onClick={() => bulkAction("accept")} disabled={busy}>全部接受</button>
+        <button onClick={() => bulkAction("reject")} disabled={busy}>全部拒绝</button>
+        <button onClick={doPreview} disabled={busy}>预览变更</button>
+        <button onClick={doCommit} disabled={busy || batch.status !== "accepted"} style={{ background: "#10b981" }}>提交入库</button>
+      </div>
+      {msg && <p>{msg}</p>}
+      {preview && (
+        <div className="preview-box">
+          <b>变更预览：</b> +{preview.new_nodes} 节点 / +{preview.new_edges} 边 / ~{preview.updated_nodes} 更新
+        </div>
+      )}
+      <table className="data-table">
+        <thead><tr><th>类型</th><th>内容</th><th>状态</th></tr></thead>
+        <tbody>
+          {(batch.items || []).map((item) => (
+            <tr key={item.id}>
+              <td><span className="tag">{item.item_type}</span></td>
+              <td style={{ fontSize: 12 }}>{item.item_type === "node" ? `${item.data?.label} (${item.data?.type})` : `${item.data?.source} → ${item.data?.target} [${item.data?.relation}]`}</td>
+              <td>{statusBadge(item.status)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CandidatesPanel() {
+  const [batches, setBatches] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [extractUri, setExtractUri] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(() => api("/api/admin/candidates?limit=50").then((r) => setBatches(r.batches || r)), []);
+  useEffect(() => { load(); }, [load]);
+
+  async function extract() {
+    if (!extractUri) return;
+    setBusy(true); setMsg("");
+    try { await post("/api/admin/candidates/extract", { uri: extractUri, requested_by: "web-ui" }); await load(); setMsg("✓ 抽取已触发"); }
+    catch (e) { setMsg("❌ " + e.message); }
+    finally { setBusy(false); }
+  }
+
+  if (selected) return <BatchDetail batchId={selected} onBack={() => { setSelected(null); load(); }} />;
+
+  return (
+    <div>
+      <h2>候选批次管理</h2>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <input value={extractUri} onChange={(e) => setExtractUri(e.target.value)} placeholder="cloudreve://my/文件路径" style={{ flex: 1 }} />
+        <button onClick={extract} disabled={busy || !extractUri}>触发抽取</button>
+      </div>
+      {msg && <p>{msg}</p>}
+      <table className="data-table">
+        <thead><tr><th>来源</th><th>状态</th><th>条目</th><th>操作</th></tr></thead>
+        <tbody>
+          {batches.map((b) => (
+            <tr key={b.id}>
+              <td style={{ fontSize: 12, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>{b.source_uri}</td>
+              <td>{statusBadge(b.status)}</td>
+              <td>{b.item_count ?? "—"}</td>
+              <td><button onClick={() => setSelected(b.id)}>详情</button></td>
+            </tr>
+          ))}
+          {batches.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", color: "#6b7280" }}>暂无批次</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Cloudreve ────────────────────────────────────────────────────────────────
+const REDIRECT_URI = new URL("/api/auth/cloudreve/callback", API_BASE || window.location.origin).toString();
+
+function CloudrevePanel() {
+  const [auth, setAuth] = useState({ authorized: false });
+  const [config, setConfig] = useState({ configured: false });
+  const [scan, setScan] = useState({ status: "idle", files_found: 0, files_queued: 0 });
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [cloudreveUrl, setCloudreveUrl] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      api("/api/auth/cloudreve/status").then(setAuth).catch(() => {}),
+      api("/api/auth/cloudreve/config").then(setConfig).catch(() => {}),
+      api("/api/cloudreve/scan/status").then(setScan).catch(() => {}),
+    ]);
+  }, []);
+
+  async function saveConfig() {
+    setBusy(true); setMsg("");
+    try {
+      const c = await post("/api/auth/cloudreve/config", { cloudreve_base_url: cloudreveUrl, client_id: clientId, client_secret: clientSecret, redirect_uri: REDIRECT_URI, scope: "openid profile offline_access Files.Read" });
+      setConfig(c); setMsg("✓ 已保存");
+    } catch (e) { setMsg("❌ " + e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function triggerScan() {
+    setBusy(true); setMsg("");
+    try { await post("/api/cloudreve/scan"); setMsg("✓ 扫描已启动，稍后刷新"); }
+    catch (e) { setMsg("❌ " + e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <h2>Cloudreve 连接</h2>
+      <div className="metric-row">
+        <div className="metric-card"><div className="metric-value">{auth.authorized ? "✓ 已授权" : "✗ 未授权"}</div><div className="metric-label">授权状态</div></div>
+        <div className="metric-card"><div className="metric-value">{scan.files_found}</div><div className="metric-label">发现文件</div></div>
+        <div className="metric-card"><div className="metric-value">{scan.files_queued}</div><div className="metric-label">已排队</div></div>
+      </div>
+      <h3>OAuth 配置</h3>
+      <div style={{ display: "grid", gap: 8, maxWidth: 500 }}>
+        <input value={cloudreveUrl} onChange={(e) => setCloudreveUrl(e.target.value)} placeholder="Cloudreve 地址 (http://localhost:5212)" />
+        <input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="Client ID" />
+        <input value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder="Client Secret" type="password" />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={saveConfig} disabled={busy}>保存配置</button>
+          <button onClick={() => window.location.assign(`${API_BASE}/api/auth/cloudreve/start`)} disabled={!config.configured}>授权登录</button>
+          <button onClick={triggerScan} disabled={busy || !auth.authorized}>触发全量扫描</button>
+        </div>
+      </div>
+      {msg && <p>{msg}</p>}
+    </div>
+  );
+}
+
+// ─── App shell ────────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "dashboard", label: "仪表盘" },
+  { id: "candidates", label: "候选审核" },
+  { id: "graph", label: "知识图谱" },
+  { id: "cloudreve", label: "Cloudreve" },
+];
+
+function App() {
+  const [tab, setTab] = useState("dashboard");
+  const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [graphLoading, setGraphLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "graph") return;
+    setGraphLoading(true);
+    api("/api/graph").then(setGraphData).catch(() => {}).finally(() => setGraphLoading(false));
+  }, [tab]);
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <span className="app-title">Knowledge OS</span>
+        <nav className="tab-nav">
+          {TABS.map((t) => (
+            <button key={t.id} className={`tab-btn${tab === t.id ? " active" : ""}`} onClick={() => setTab(t.id)}>{t.label}</button>
+          ))}
+        </nav>
+      </header>
+      <main className="app-main">
+        {tab === "dashboard" && <Dashboard />}
+        {tab === "candidates" && <CandidatesPanel />}
+        {tab === "graph" && (graphLoading ? <p>图谱加载中…</p> : <GraphView nodes={graphData.nodes || []} edges={graphData.edges || []} />)}
+        {tab === "cloudreve" && <CloudrevePanel />}
+      </main>
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")).render(<App />);
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import GraphView from "./GraphView.jsx";
