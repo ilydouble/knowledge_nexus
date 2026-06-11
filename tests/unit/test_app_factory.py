@@ -1,4 +1,4 @@
-from core.app_factory import build_repository, create_application
+from apps.api.factory import build_repository, create_application
 from core.repositories.memory import InMemoryRepository
 from core.repositories.postgres import PostgresRepository
 from core.settings import Settings

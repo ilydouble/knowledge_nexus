@@ -2,7 +2,7 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
-from core.app_factory import create_application
+from apps.api.factory import create_application
 from core.repositories.memory import InMemoryRepository
 
 

@@ -7,7 +7,7 @@ import json
 import logging
 
 from core.cloudreve.client import CloudreveClient
-from core.app_factory import build_repository
+from apps.api.factory import build_repository
 from core.models import IngestionJob
 from core.services.pipeline import SemanticPipeline
 from core.services.scanner import CloudreveScanner
