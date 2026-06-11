@@ -53,7 +53,7 @@ def build_knowledge_os_store(settings: Settings, repository: NexusRepository | N
 
 
 def create_application(repository: NexusRepository | None = None, settings: Settings | None = None) -> FastAPI:
-    app = FastAPI(title="Knowledge Nexus API", version="0.1.0")
+    app = FastAPI(title="Knowledge OS API", version="1.0.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[

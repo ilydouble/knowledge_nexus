@@ -1,17 +1,18 @@
-"""Knowledge Nexus MCP Server.
+"""Knowledge OS MCP Server.
 
-Exposes the Neo4j knowledge graph and Postgres document metadata as MCP tools
-so that Claude Code (and any other MCP-capable agent) can query them directly.
+Exposes Knowledge OS candidate batches and the Neo4j knowledge graph as MCP
+tools so that Pi-Agent (and any MCP-capable agent) can orchestrate the full
+extract → review → commit workflow.
 
 Usage:
-    conda run -n nexus python -m nexus.mcp_server
+    conda run -n nexus python -m apps.mcp.server
 
-Claude Code ~/.claude/claude_desktop_config.json entry:
+Claude Code / Pi-Agent ~/.claude/claude_desktop_config.json entry:
     {
       "mcpServers": {
-        "knowledge-nexus": {
+        "knowledge-os": {
           "command": "/opt/miniconda3/envs/nexus/bin/python",
-          "args": ["-m", "nexus.mcp_server"],
+          "args": ["-m", "apps.mcp.server"],
           "cwd": "/path/to/knowledge_nexus"
         }
       }
@@ -39,23 +40,24 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight test 
         def run(self) -> None:
             raise RuntimeError("mcp package is not installed")
 
+from apps.api.factory import build_knowledge_os_store, build_repository
 from core.graph.neo4j_store import Neo4jGraphStore
-from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
 from knowledge_os.interfaces.mcp import register_knowledge_os_tools
-from core.repositories.postgres import PostgresRepository
 from core.settings import Settings
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Bootstrap
+# Bootstrap — use the same store resolution as the API and Worker so that
+# Pi-Agent sees candidate batches created by either process.
 # ---------------------------------------------------------------------------
 
 settings = Settings.from_env()
 
+_repo = build_repository(settings)
+_knowledge_os_store = build_knowledge_os_store(settings, _repo)
+
 _neo4j: Neo4jGraphStore | None = None
-_repo: PostgresRepository | None = None
-_knowledge_os_store = InMemoryKnowledgeOSStore()
 
 
 def _get_neo4j() -> Neo4jGraphStore:
@@ -69,17 +71,11 @@ def _get_neo4j() -> Neo4jGraphStore:
     return _neo4j
 
 
-def _get_repo() -> PostgresRepository:
-    global _repo
-    if _repo is None:
-        _repo = PostgresRepository(
-            database_url=settings.database_url,
-            tenant_id="default",
-        )
+def _get_repo():
     return _repo
 
 
-mcp = FastMCP("knowledge-nexus")
+mcp = FastMCP("knowledge-os")
 
 # ---------------------------------------------------------------------------
 # Tool helpers
@@ -94,57 +90,19 @@ def _node_to_dict(node) -> dict:
     }
 
 
-def _doc_to_dict(doc) -> dict:
-    return {
-        "uri": doc.uri,
-        "summary": doc.summary,
-        "tags": doc.tags,
-        "entities": doc.entities,
-        "chunk_count": len(doc.chunks),
-    }
-
-
 # ---------------------------------------------------------------------------
-# Tools
+# Neo4j graph query tools (complement to Knowledge OS candidate tools)
 # ---------------------------------------------------------------------------
-
-@mcp.tool()
-def list_documents() -> str:
-    """List all processed documents with their summaries and tags.
-
-    Returns a JSON array of {uri, summary, tags, entities, chunk_count}.
-    Use this to discover what knowledge has been ingested.
-    """
-    docs = _get_repo().list_documents()
-    return json.dumps([_doc_to_dict(d) for d in docs], ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def get_document(uri: str) -> str:
-    """Get full metadata for a specific document by its Cloudreve URI.
-
-    Args:
-        uri: The cloudreve:// URI of the document (e.g. cloudreve://my/report.pdf)
-
-    Returns JSON with summary, tags, entities list, and chunk count.
-    """
-    doc = _get_repo().get_document(uri)
-    if doc is None:
-        return json.dumps({"error": f"Document not found: {uri}"})
-    return json.dumps(_doc_to_dict(doc), ensure_ascii=False, indent=2)
-
 
 @mcp.tool()
 def search_entities(query: str) -> str:
-    """Search the knowledge graph for entities matching a keyword.
-
-    Searches all graph nodes (people, organizations, methods, concepts, etc.)
-    by label. Also matches document nodes if the filename contains the keyword.
+    """Search committed graph nodes by keyword.
 
     Args:
-        query: Keyword to search for (case-insensitive, partial match)
+        query: Keyword to search for (case-insensitive, partial match).
 
-    Returns JSON array of matching nodes with id, label, and summary.
+    Returns JSON array of matching nodes with id, uri, label, summary.
+    Use ask_knowledge_graph for natural-language QA over the same graph.
     """
     nodes = _get_neo4j().search_nodes(query, limit=20)
     return json.dumps([_node_to_dict(n) for n in nodes], ensure_ascii=False, indent=2)
@@ -152,12 +110,10 @@ def search_entities(query: str) -> str:
 
 @mcp.tool()
 def get_document_graph(uri: str) -> str:
-    """Get the knowledge graph for a specific document.
-
-    Returns all entities extracted from the document and their relationships.
+    """Get all committed graph nodes and edges for a source document URI.
 
     Args:
-        uri: The cloudreve:// URI of the document
+        uri: The cloudreve:// URI of the source document.
 
     Returns JSON with nodes (entities) and edges (relations) arrays.
     """
@@ -169,25 +125,6 @@ def get_document_graph(uri: str) -> str:
             for e in result.edges
         ],
     }, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def find_documents_by_tag(tag: str) -> str:
-    """Find documents that contain a specific tag.
-
-    Args:
-        tag: The tag to search for (case-insensitive, partial match)
-
-    Returns JSON array of matching documents with uri, summary, and tags.
-    """
-    docs = _get_repo().list_documents()
-    tag_lower = tag.lower()
-    matched = [d for d in docs if any(tag_lower in t.lower() for t in d.tags)]
-    return json.dumps(
-        [{"uri": d.uri, "summary": d.summary, "tags": d.tags} for d in matched],
-        ensure_ascii=False,
-        indent=2,
-    )
 
 
 from knowledge_os.application.extraction_pipeline import build_candidate_extraction_pipeline
