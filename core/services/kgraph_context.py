@@ -268,5 +268,6 @@ class KGraphContextBuilder:
             "contract": "legal",
             "email": "communications",
             "tabular_data": "data",
+            "smart_campus": "smart_campus",
             "general": "general",
         }.get(doc_type, "general")

@@ -106,6 +106,21 @@ CATEGORIES: dict[str, dict] = {
                              "操作步骤", "危险源", "故障", "维修", "控制措施",
                              "应急响应", "safety interlock", "防护", "检修"],
     },
+    "smart_campus": {
+        "strategy": "llm_extract",
+        "description": "Smart campus, smart building, BMS/EMS/HVAC, building ontology, FDD, IoT safety and operations documents",
+        "filename_keywords": [
+            "智慧园区", "智能园区", "智慧楼宇", "智能建筑", "smart campus",
+            "smart building", "bms", "ems", "hvac", "fdd", "brick", "rec",
+            "realestatecore", "能耗", "楼宇自控", "园区",
+        ],
+        "content_keywords": [
+            "brick schema", "realestatecore", "haystack", "bms", "ems", "hvac",
+            "ahu", "vav", "fcu", "fdd", "楼宇", "园区", "楼宇自控", "能耗",
+            "电表", "水表", "冷水机组", "空气处理机组", "变频器", "配电箱",
+            "点位", "传感器", "工单", "设备台账", "空间拓扑", "故障溯源",
+        ],
+    },
     "legal_case": {
         "strategy": "llm_extract",
         "description": "Court judgments, case citations, legal opinions, compliance reports",

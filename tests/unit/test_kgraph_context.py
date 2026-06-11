@@ -147,7 +147,7 @@ class TestHyperExtractTemplateAdapter:
     def test_adapt_all_canonical_doc_types_return_full_ontology(self):
         """All TEMPLATE_MAP doc_types must return a full ontology (not fallback)."""
         for doc_type in ("general", "report", "email", "academic_paper", "technical_doc",
-                         "meeting_minutes", "contract", "tabular_data"):
+                         "meeting_minutes", "contract", "tabular_data", "smart_campus"):
             result = self.adapter.adapt(doc_type)
             assert result is not None, f"{doc_type}: adapt() returned None"
             assert not result.is_native_fallback, f"{doc_type}: expected full adaptation"

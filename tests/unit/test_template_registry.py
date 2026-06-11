@@ -78,3 +78,27 @@ def test_selector_falls_back_to_general_template_for_unknown_doc_type():
     assert selections
     assert selections[0].template_id == "nexus/general"
     assert selections[0].reason == "fallback"
+
+
+def test_selector_prefers_smart_campus_template_for_campus_documents():
+    selector = TemplateSelector()
+
+    selections = selector.select("smart_campus", max_candidates=3)
+
+    assert selections
+    assert selections[0].template_id == "nexus/smart_campus"
+    assert selections[0].is_primary is True
+    assert any(selection.template_id == "industry/equipment_topology" for selection in selections)
+
+
+def test_adapter_loads_smart_campus_ontology():
+    adapter = HyperExtractTemplateAdapter()
+
+    result = adapter.adapt("smart_campus")
+
+    assert result is not None
+    assert not result.is_native_fallback
+    types = {concept["type"] for concept in result.ontology["concepts"]}
+    relations = {relation["relation"] for relation in result.ontology["relations"]}
+    assert {"Building", "Space", "Equipment", "Point", "FaultEvent"}.issubset(types)
+    assert {"LOCATED_IN", "FEEDS", "HAS_POINT", "TRIGGERS"}.issubset(relations)

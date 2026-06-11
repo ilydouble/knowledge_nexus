@@ -13,6 +13,8 @@
 - 调研材料进一步提出四大知识层级：动态感知层、物理骨架层、业务经验层、顶层标准层。
 - 顶层标准建议使用 Brick Schema 和 RealEstateCore；研究背书包括建筑能效知识图谱综述、The World Avatar、FDD 与控制融合论文方向。
 - 可利用的数据源包括 EMS/BMS/IoT/消防安防/空间台账/设备台账/工单，以及公开数据集 ASHRAE、SHIFDR、AHU FDD、LBNL AFDD。
+- 已新增 `smart_campus` 文档类型，用于识别智慧园区、智能建筑、BMS、EMS、HVAC、Brick、REC、FDD 等材料。
+- 已新增 `nexus/smart_campus` 本体模板，覆盖园区、楼宇、楼层、空间、设备、点位、指标、故障、根因、工单、流程、规则、标准、数据集、角色和 Agent 动作。
 
 ## 技术决策
 | 决策 | 理由 |
@@ -21,12 +23,14 @@
 | 将 Brick/REC 映射为 L1 标准层，本项目自定义园区概念作为 L2 项目层 | 兼顾国际标准背书和本地项目可落地性 |
 | 保留候选审核机制 | 园区图谱涉及交付质量，不能让抽取结果直接污染正式图谱 |
 | 设计 Pi-Agent 工具、技能、记忆三类资产 | 工具负责动作，技能负责流程，记忆负责项目长期上下文 |
+| 在 Knowledge OS 中新增 `smart_campus` 分类与模板映射 | 能让调研材料进入专用园区抽取路径，而不是落到 `general` 或误判为其他领域 |
 
 ## 遇到的问题
 | 问题 | 解决方案 |
 |------|---------|
 | KGraph 导入格式尚未明确 | 暂按中立 YAML/JSON 本体种子设计，后续增加导出适配器 |
 | 第一版优先级尚未明确 | 先给出推荐架构与最小闭环，再让用户确认实施顺序 |
+| “故障诊断”关键词可能导致园区材料误判为医疗文档 | 新增更强的 `smart_campus` 领域关键词和测试用例 |
 
 ## 资源
 - `/Volumes/D/创业/2026-赛迪知识图谱/实施阶段/调研/20260610-数据需求.md`
@@ -36,6 +40,8 @@
 - `README.md`
 - `docs/core_architecture.md`
 - `knowledge-graph/SKILL.md`
+- `data/ontology/templates/nexus/smart_campus.yaml`
+- `docs/plans/2026-06-11-smart-campus-graph-os-design.md`
 
 ## 视觉/浏览器发现
 - 未执行浏览器或视觉检查。

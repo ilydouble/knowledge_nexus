@@ -233,6 +233,16 @@ class TestDocumentClassifier:
         result = self.clf.classify("monthly_report_may.pdf")
         assert result.doc_type == "report"
 
+    def test_smart_campus_keywords_detect_domain_documents(self):
+        result = self.clf.classify(
+            "智慧园区BMS能耗与故障诊断方案.md",
+            content_preview="采用 Brick Schema 描述楼宇空间、HVAC 设备、EMS 电表、BMS 点位、AHU 故障和工单闭环。",
+        )
+
+        assert result.doc_type == "smart_campus"
+        assert result.strategy == "llm_extract"
+        assert result.confidence >= 0.4
+
     def test_content_keyword_academic(self):
         preview = "Abstract: This paper proposes a new methodology for... doi:10.1234/xyz"
         result = self.clf.classify("unknown.pdf", content_preview=preview)
@@ -258,7 +268,7 @@ class TestDocumentClassifier:
         """Every canonical doc_type must load a full ontology via the YAML adapter."""
         extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
         for doc_type in ("tabular_data", "contract", "email", "academic_paper",
-                         "technical_doc", "meeting_minutes", "report", "general"):
+                         "technical_doc", "meeting_minutes", "report", "general", "smart_campus"):
             ontology = extractor._get_ontology(doc_type)
             assert "concepts" in ontology, f"{doc_type}: missing 'concepts'"
             assert "relations" in ontology, f"{doc_type}: missing 'relations'"

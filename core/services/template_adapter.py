@@ -48,6 +48,7 @@ TEMPLATE_MAP: dict[str, str] = {
     "medical_record":    "nexus/medical_record",
     "tcm_text":          "nexus/tcm_text",
     "industry_manual":   "nexus/industry_manual",
+    "smart_campus":      "nexus/smart_campus",
     "legal_case":        "nexus/legal_case",
     "biography":         "nexus/biography",
     "workflow_doc":      "nexus/workflow_doc",
@@ -108,6 +109,14 @@ DOC_TYPE_TEMPLATE_HINTS: dict[str, list[str]] = {
         "industry/failure_case",
         "industry/safety_control",
         "industry/emergency_response",
+    ],
+    "smart_campus": [
+        "nexus/smart_campus",
+        "industry/equipment_topology",
+        "industry/failure_case",
+        "industry/safety_control",
+        "industry/emergency_response",
+        "general/base_spatio_temporal_graph",
     ],
     "legal_case": [
         "nexus/legal_case",
