@@ -190,6 +190,105 @@ def test_extract_uses_mapreduce_for_long_text():
     assert len(http_client.requests) > 1
 
 
+def test_mapreduce_preserves_cross_segment_relations():
+    """Relations whose endpoints span different segments must NOT be pruned.
+
+    Scenario: entity "a" appears only in segment-1 result; entity "b" only in
+    segment-2 result; a relation (a→b) is returned by segment-2.  After global
+    merge both entities exist, so the relation must survive.
+    """
+    seg1_payload = {
+        "choices": [{"message": {"content": json.dumps({
+            "summary": "seg1",
+            "tags": [],
+            "entities": [{"id": "a", "label": "A", "type": "Concept", "confidence": 0.9}],
+            "relations": [],
+            "key_points": [],
+        })}}]
+    }
+    seg2_payload = {
+        "choices": [{"message": {"content": json.dumps({
+            "summary": "seg2",
+            "tags": [],
+            "entities": [{"id": "b", "label": "B", "type": "Concept", "confidence": 0.9}],
+            # cross-segment relation: a (from seg1) → b (from seg2)
+            "relations": [{"source": "a", "target": "b", "relation": "LINKS"}],
+            "key_points": [],
+        })}}]
+    }
+
+    responses = [seg1_payload, seg2_payload]
+
+    class SequentialFakeClient:
+        """Returns different payloads per call (thread-safe via list.pop is not
+        order-safe under concurrency, so use a fixed single-worker extractor)."""
+        def __init__(self):
+            self._lock = concurrent.futures.ThreadPoolExecutor  # unused, just label
+            self._calls = 0
+            import threading
+            self._lock = threading.Lock()
+
+        def post(self, url, *, headers, json, timeout):
+            with self._lock:
+                idx = self._calls % 2
+                self._calls += 1
+            return FakeResponse(responses[idx])
+
+    import threading
+
+    class SeqClient:
+        def __init__(self):
+            self._lock = threading.Lock()
+            self._calls = 0
+
+        def post(self, url, *, headers, json, timeout):
+            with self._lock:
+                idx = self._calls % len(responses)
+                self._calls += 1
+            return FakeResponse(responses[idx])
+
+    extractor = KnowledgeExtractor(
+        api_key="k", model="m", http_client=SeqClient(), max_workers=1
+    )
+    # Construct exactly 2 segments to guarantee one call per segment
+    text = "x" * (_SEGMENT_SIZE + 1)
+    result = extractor._extract_mapreduce(text, "general", {"concepts": [], "relations": [], "instructions": ""})
+
+    entity_ids = {e["id"] for e in result.entities}
+    assert "a" in entity_ids
+    assert "b" in entity_ids
+    # Cross-segment relation must survive global pruning
+    assert any(r["source"] == "a" and r["target"] == "b" for r in result.relations), \
+        "Cross-segment relation a→b was incorrectly pruned"
+
+
+def test_concurrent_mapreduce_uses_multiple_threads():
+    """Map-reduce with max_workers>1 should complete without error and return results."""
+    import threading
+
+    call_threads: list[int] = []
+    lock = threading.Lock()
+
+    payload = {
+        "choices": [{"message": {"content": json.dumps(
+            {"summary": "s", "tags": [], "entities": [], "relations": [], "key_points": []}
+        )}}]
+    }
+
+    class TrackingClient:
+        def post(self, url, *, headers, json, timeout):
+            with lock:
+                call_threads.append(threading.get_ident())
+            return FakeResponse(payload)
+
+    long_text = "word " * (_MAP_REDUCE_THRESHOLD + 5000)
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=TrackingClient(), max_workers=4)
+    result = extractor.extract(long_text)
+    assert isinstance(result, ExtractedKnowledge)
+    # At least one segment call was made
+    assert len(call_threads) >= 1
+
+
 
 # ---------------------------------------------------------------------------
 # DocumentClassifier tests

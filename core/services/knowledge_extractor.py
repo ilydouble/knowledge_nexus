@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 from dataclasses import dataclass, field
@@ -66,6 +67,7 @@ class KnowledgeExtractor:
         base_url: str | None = None,
         http_client: Any | None = None,
         timeout: float = 180.0,
+        max_workers: int = 4,
     ) -> None:
         settings = Settings.from_env()
         self.api_key = api_key or settings.zhipu_api_key or settings.openai_api_key
@@ -73,6 +75,7 @@ class KnowledgeExtractor:
         self.base_url = base_url or settings.llm_base_url
         self.http_client = http_client or httpx.Client(timeout=timeout)
         self.timeout = timeout
+        self.max_workers = max_workers
     
     def extract(
         self,
@@ -219,28 +222,42 @@ Rules:
     def _extract_mapreduce(
         self, text: str, doc_type: str, ontology: dict
     ) -> ExtractedKnowledge:
-        """Extract knowledge from a long document via map-reduce."""
+        """Extract knowledge from a long document via concurrent map-reduce.
+
+        Segments are dispatched in parallel (ThreadPoolExecutor) so N segments
+        take ~1× latency instead of N×.  Relation endpoint pruning is deferred
+        to ``_merge_extractions`` so cross-segment relations are not dropped.
+        """
         segments = self._split_text(text)
         logger.info(
-            "Map-reduce: %d segments × ~%d chars each",
-            len(segments),
-            _SEGMENT_SIZE,
+            "Map-reduce: %d segments × ~%d chars each (max_workers=%d)",
+            len(segments), _SEGMENT_SIZE, self.max_workers,
         )
 
+        def _process(args: tuple[int, str]) -> ExtractedKnowledge:
+            i, segment = args
+            prompt = self._build_extraction_prompt(segment, ontology, doc_type)
+            raw = self._call_chat_completion(prompt)
+            # Skip per-segment relation pruning; global pruning happens after merge
+            partial = self._normalize_result(raw, doc_type, prune_dangling_relations=False)
+            logger.debug(
+                "Segment %d/%d: %d entities, %d relations",
+                i + 1, len(segments), len(partial.entities), len(partial.relations),
+            )
+            return partial
+
         partials: list[ExtractedKnowledge] = []
-        for i, segment in enumerate(segments):
-            try:
-                prompt = self._build_extraction_prompt(segment, ontology, doc_type)
-                raw = self._call_chat_completion(prompt)
-                partial = self._normalize_result(raw, doc_type)
-                partials.append(partial)
-                logger.debug(
-                    "Segment %d/%d: %d entities, %d relations",
-                    i + 1, len(segments),
-                    len(partial.entities), len(partial.relations),
-                )
-            except Exception as exc:
-                logger.warning("Segment %d/%d failed: %s", i + 1, len(segments), exc)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            future_to_idx = {
+                pool.submit(_process, (i, seg)): i
+                for i, seg in enumerate(segments)
+            }
+            for future in concurrent.futures.as_completed(future_to_idx):
+                i = future_to_idx[future]
+                try:
+                    partials.append(future.result())
+                except Exception as exc:
+                    logger.warning("Segment %d/%d failed: %s", i + 1, len(segments), exc)
 
         if not partials:
             # All segments failed — fall back to single-pass on the first window
@@ -277,6 +294,20 @@ Rules:
                 if key not in seen_rel_keys:
                     seen_rel_keys.add(key)
                     merged_relations.append(rel)
+
+        # Global dangling-edge pruning: after merging ALL segments we now have
+        # the complete entity set, so cross-segment edges are no longer falsely
+        # pruned (e.g. entity A in seg-1 ↔ entity B in seg-2 are both present).
+        all_entity_ids = {e["id"] for e in merged_entities}
+        before = len(merged_relations)
+        merged_relations = [
+            rel for rel in merged_relations
+            if rel.get("source", "") in all_entity_ids
+            and rel.get("target", "") in all_entity_ids
+        ]
+        dropped = before - len(merged_relations)
+        if dropped:
+            logger.info("Global edge pruning: dropped %d dangling relation(s)", dropped)
 
         # Tags — ordered union, max 20
         seen_tags: set[str] = set()
@@ -444,8 +475,24 @@ Always respond with valid JSON following the specified schema."""
 {text}
 """
     
-    def _normalize_result(self, result: dict, doc_type: str) -> ExtractedKnowledge:
-        """Normalize, validate, and quality-filter the raw LLM extraction result."""
+    def _normalize_result(
+        self,
+        result: dict,
+        doc_type: str,
+        prune_dangling_relations: bool = True,
+    ) -> ExtractedKnowledge:
+        """Normalize, validate, and quality-filter the raw LLM extraction result.
+
+        Args:
+            result: Raw dict from the LLM JSON response.
+            doc_type: Document category label.
+            prune_dangling_relations: When ``True`` (default, used for single-pass
+                and tabular paths) drop relations whose endpoints are absent from
+                this result's entity list.  Set to ``False`` during map-reduce
+                segment processing so cross-segment relations are not discarded
+                prematurely; ``_merge_extractions`` performs a global prune after
+                all segments are merged.
+        """
         entities = result.get("entities", [])
         relations = result.get("relations", [])
 
@@ -456,18 +503,22 @@ Always respond with valid JSON following the specified schema."""
                 etype = entity.get("type", "Concept")
                 entity["id"] = f"{etype.lower()}_{label.lower().replace(' ', '_')}"
 
-        # ⑤ Quality filter: drop entities below confidence threshold
+        # Quality filter: drop entities below confidence threshold
         entities = [
             e for e in entities
             if float(e.get("confidence", 1.0)) >= MIN_ENTITY_CONFIDENCE
         ]
 
-        # ⑤ Quality filter: drop relations whose endpoints were removed
-        entity_ids = {e["id"] for e in entities}
-        valid_relations = [
-            rel for rel in relations
-            if rel.get("source", "") in entity_ids and rel.get("target", "") in entity_ids
-        ]
+        # Quality filter: drop relations whose endpoints were removed
+        # (only for single-pass; map-reduce defers this to _merge_extractions)
+        if prune_dangling_relations:
+            entity_ids = {e["id"] for e in entities}
+            valid_relations = [
+                rel for rel in relations
+                if rel.get("source", "") in entity_ids and rel.get("target", "") in entity_ids
+            ]
+        else:
+            valid_relations = relations
 
         return ExtractedKnowledge(
             summary=result.get("summary", ""),
