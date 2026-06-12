@@ -35,7 +35,7 @@ def test_admin_candidate_api_supports_extract_review_preview_commit_and_evidence
         json={
             "uri": "cloudreve://my/design.md",
             "requested_by": "pi-agent",
-            "template_ids": ["nexus/technical_doc"],
+            "template_ids": ["general/base_graph"],
             "candidate_entities": [{"id": "api", "label": "API", "type": "Component"}],
             "candidate_relations": [
                 {

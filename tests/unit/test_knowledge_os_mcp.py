@@ -25,7 +25,7 @@ def test_mcp_candidate_tools_return_stable_json():
             uri="cloudreve://my/design.md",
             candidate_entities_json='[{"id":"api","label":"API"}]',
             candidate_relations_json='[{"source":"api","target":"db","relation":"STORES_IN"}]',
-            template_ids_json='["nexus/technical_doc"]',
+            template_ids_json='["general/base_graph"]',
         )
     )
     batch_id = created["batch"]["id"]

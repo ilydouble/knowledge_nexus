@@ -1,8 +1,8 @@
 {
-  "access_token": "fresh-access",
-  "refresh_token": "fresh-refresh",
-  "access_expires": "2026-06-11T01:17:29.693307758+08:00",
-  "refresh_expires": "2026-07-11T00:17:29.693307925+08:00",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwic3ViIjoiSnZoWiIsImV4cCI6MTc4MTI1NzI0OCwibmJmIjoxNzgxMjUzNjQ4LCJzY29wZXMiOlsib3BlbmlkIiwicHJvZmlsZSIsIm9mZmxpbmVfYWNjZXNzIiwiRmlsZXMuUmVhZCJdfQ.N0Iad4Qr5QqHyj_TprOurSWjSihGm0KvVdzobE-2QAY",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsInN1YiI6Ikp2aFoiLCJleHAiOjE3ODM4NDU2NDgsIm5iZiI6MTc4MTI1MzY0OCwic3RhdGVfaGFzaCI6IlNlbHYvdG5QWmFOQ1F6TE85RmU3SGowNlZWajZlaVVPMkxIOVlwMWdscWM9Iiwicm9vdF90b2tlbl9pZCI6IjhmYTZmMzUwLTM1MWMtNDA5NC05NGY2LWVmNTU0MzNhMTg1MCIsInNjb3BlcyI6WyJvcGVuaWQiLCJwcm9maWxlIiwib2ZmbGluZV9hY2Nlc3MiLCJGaWxlcy5SZWFkIl0sImNsaWVudF9pZCI6ImQzNjNlZjFiLTRjODAtNGIzZC1hYTZkLTc5MmI0OGY2MTYxNSJ9.RSA1DHaCKCRdbMUx-2rFPA3vB4rLGCc-2PifTiYj5CA",
+  "access_expires": "2026-06-12T17:40:48.044612137+08:00",
+  "refresh_expires": "2026-07-12T16:40:48.044612304+08:00",
   "token_type": "Bearer",
   "expires_in": 3599,
   "refresh_token_expires_in": 2591999,

@@ -172,7 +172,7 @@ class KnowledgeExtractor:
             embedding_service: Optional service with ``embed_batch(texts)``
                 for semantic entity deduplication *and* semantic template
                 matching.  When provided, ``_get_ontology`` uses
-                ``SemanticTemplateMatcher`` instead of the static TEMPLATE_MAP.
+                ``SemanticTemplateMatcher`` for automatic template matching.
             semantic_dedup_threshold: Cosine-similarity threshold above which
                 two entity labels are considered duplicates (default 0.88).
             template_top_k: Number of best-matching templates whose ontologies
@@ -772,10 +772,9 @@ Rules:
         1. **Semantic matching** (when an embedding_service was provided) —
            ``SemanticTemplateMatcher`` embeds the document preview and ranks
            all 37 HE templates, returning a fused Top-K ontology.
-        2. **Static TEMPLATE_MAP** — adapts the YAML template mapped to
-           *doc_type* (legacy path; used when no embedding_service is set).
-        3. **'general' fallback** — broad HE base_graph ontology.
-        4. **_EMERGENCY_FALLBACK_ONTOLOGY** — last resort if all YAMLs fail.
+        2. **``general/base_graph`` fallback** — used when no embedding_service
+           is configured; provides a broad general-purpose ontology.
+        3. **_EMERGENCY_FALLBACK_ONTOLOGY** — last resort if all YAMLs fail.
 
         Each returned dict contains:
         - ``concepts``: list of ``{type, description}``
@@ -796,19 +795,15 @@ Rules:
                 doc_type,
             )
 
-        # ── Path 2: Static TEMPLATE_MAP (legacy) ──────────────────────────────
+        # ── Path 2: general/base_graph fallback ───────────────────────────────
         adapter = HyperExtractTemplateAdapter()
-        result = adapter.adapt(doc_type)
-        if result is not None and not result.is_native_fallback:
-            logger.debug("Using YAML template ontology for doc_type=%s", doc_type)
-            return result.ontology
-
-        # ── Path 3: 'general' fallback ────────────────────────────────────────
-        if doc_type != "general":
-            general = adapter.adapt("general")
-            if general is not None and not general.is_native_fallback:
-                logger.debug("Falling back to general ontology for doc_type=%s", doc_type)
-                return general.ontology
+        general = adapter.adapt_by_id("general/base_graph")
+        if general is not None:
+            logger.debug(
+                "No embedding service; using general/base_graph ontology for doc_type=%s",
+                doc_type,
+            )
+            return general.ontology
 
         logger.warning("No YAML template found for doc_type=%s; using emergency fallback", doc_type)
         return _EMERGENCY_FALLBACK_ONTOLOGY

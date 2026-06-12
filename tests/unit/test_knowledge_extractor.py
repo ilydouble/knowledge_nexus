@@ -594,21 +594,13 @@ class TestDocumentClassifier:
         rel_names = [r["relation"] for r in ontology["relations"]]
         assert any(rn in prompt for rn in rel_names)
 
-    def test_get_ontology_contract_uses_nexus_yaml(self):
-        """contract → nexus/contract.yaml (type: graph) → full ontology with Party/Obligation."""
+    def test_get_ontology_returns_general_base_graph_without_embedding_service(self):
+        """Without embedding_service, _get_ontology falls back to general/base_graph."""
         extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
         ontology = extractor._get_ontology("contract")
-        types = {c["type"] for c in ontology.get("concepts", [])}
-        assert "Party" in types, "Expected nexus/contract.yaml with 'Party' concept"
-        assert "Obligation" in types
-
-    def test_get_ontology_meeting_minutes_uses_nexus_yaml(self):
-        """meeting_minutes → nexus/meeting_minutes.yaml (type: graph) → full ontology."""
-        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
-        ontology = extractor._get_ontology("meeting_minutes")
-        types = {c["type"] for c in ontology.get("concepts", [])}
-        assert "Task" in types, "Expected nexus/meeting_minutes.yaml with 'Task' concept"
-        assert "Decision" in types
+        # general/base_graph has graph-family concepts (person, location, org, …)
+        types = {c["type"].lower() for c in ontology.get("concepts", [])}
+        assert len(types) > 0
 
     def test_get_ontology_uses_template_adapter_for_graph_types(self):
         """general → base_graph (graph) → adapter is used, not DEFAULT_ONTOLOGY."""
@@ -617,19 +609,6 @@ class TestDocumentClassifier:
         # base_graph entity examples include person, location, organization, …
         types = {c["type"].lower() for c in ontology.get("concepts", [])}
         assert len(types) > 0
-
-    def test_get_ontology_technical_doc_uses_nexus_yaml(self):
-        """technical_doc → nexus/technical_doc.yaml → Component/API vocabulary."""
-        extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None)
-
-        ontology = extractor._get_ontology("technical_doc")
-
-        types = {c["type"] for c in ontology.get("concepts", [])}
-        relations = {r["relation"] for r in ontology.get("relations", [])}
-        assert "Component" in types
-        assert "API" in types
-        assert "DEPENDS_ON" in relations
-        assert "CALLS" in relations
 
 
 # ---------------------------------------------------------------------------
@@ -765,7 +744,7 @@ def test_get_ontology_uses_semantic_matcher_when_embedding_service_provided():
 
 
 def test_get_ontology_falls_back_when_matcher_returns_none():
-    """If SemanticTemplateMatcher fails, _get_ontology falls back to TEMPLATE_MAP."""
+    """If SemanticTemplateMatcher fails, _get_ontology falls back to general/base_graph."""
 
     class AlwaysFailEmbed:
         def embed_batch(self, texts):
@@ -773,7 +752,7 @@ def test_get_ontology_falls_back_when_matcher_returns_none():
 
     extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None,
                                    embedding_service=AlwaysFailEmbed())
-    # Should not raise; falls back to nexus YAML or emergency fallback
+    # Should not raise; falls back to general/base_graph or emergency fallback
     ontology = extractor._get_ontology("general")
     assert "concepts" in ontology
     assert len(ontology["concepts"]) > 0

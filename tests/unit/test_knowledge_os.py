@@ -34,7 +34,7 @@ def test_candidate_lifecycle_previews_and_commits_only_accepted_items():
                     "confidence": 0.88,
                 }
             ],
-            template_ids=["nexus/technical_doc"],
+            template_ids=["general/base_graph"],
         )
     )
 

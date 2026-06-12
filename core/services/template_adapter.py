@@ -30,119 +30,6 @@ logger = logging.getLogger(__name__)
 #: Root directory for bundled Hyper-Extract YAML presets.
 TEMPLATES_DIR: Path = Path(__file__).parent.parent.parent / "data" / "ontology" / "templates"
 
-#: Mapping from knowledge_nexus doc_type → relative template path (no .yaml suffix).
-#: nexus/ paths use schema: nexus-v1 format; HE paths are general/legal/… subdirs.
-TEMPLATE_MAP: dict[str, str] = {
-    # Core general doc types
-    "academic_paper":  "nexus/academic_paper",
-    "technical_doc":   "nexus/technical_doc",
-    "meeting_minutes": "nexus/meeting_minutes",
-    "report":          "nexus/report",
-    "contract":        "nexus/contract",
-    "email":           "nexus/email",
-    "tabular_data":    "nexus/tabular_data",
-    "general":         "nexus/general",
-    # Domain-specific doc types
-    "financial_report":  "nexus/financial_report",
-    "medical_record":    "nexus/medical_record",
-    "tcm_text":          "nexus/tcm_text",
-    "industry_manual":   "nexus/industry_manual",
-    "smart_campus":      "nexus/smart_campus",
-    "legal_case":        "nexus/legal_case",
-    "biography":         "nexus/biography",
-    "workflow_doc":      "nexus/workflow_doc",
-}
-
-#: Ordered candidate templates for kgraph input preparation. These are used for
-#: traceable template selection metadata, not as a guarantee that the extractor
-#: will replace its native ontology.
-#: nexus/ paths are listed first (primary ontology source); HE paths follow as hints.
-DOC_TYPE_TEMPLATE_HINTS: dict[str, list[str]] = {
-    # Core general doc types
-    "academic_paper": ["nexus/academic_paper", "general/concept_graph", "general/doc_structure"],
-    "technical_doc": [
-        "nexus/technical_doc",
-        "general/base_graph",
-        "general/doc_structure",
-        "industry/equipment_topology",
-        "industry/operation_flow",
-    ],
-    "meeting_minutes": ["nexus/meeting_minutes", "general/workflow_graph", "industry/operation_flow"],
-    "report": ["nexus/report", "finance/earnings_summary", "finance/event_timeline", "general/base_graph"],
-    "contract": [
-        "nexus/contract",
-        "legal/contract_obligation",
-        "legal/defined_term_set",
-        "legal/compliance_list",
-        "legal/case_fact_timeline",
-    ],
-    "email": ["nexus/email", "general/base_graph"],
-    "tabular_data": ["nexus/tabular_data", "general/base_model", "general/base_list"],
-    "general": ["nexus/general", "general/base_graph", "general/concept_graph"],
-    # Domain-specific doc types
-    "financial_report": [
-        "nexus/financial_report",
-        "finance/ownership_graph",
-        "finance/event_timeline",
-        "finance/risk_factor_set",
-        "finance/earnings_summary",
-    ],
-    "medical_record": [
-        "nexus/medical_record",
-        "medicine/drug_interaction",
-        "medicine/hospital_timeline",
-        "medicine/anatomy_graph",
-        "medicine/treatment_map",
-    ],
-    "tcm_text": [
-        "nexus/tcm_text",
-        "tcm/herb_relation",
-        "tcm/meridian_graph",
-        "tcm/formula_composition",
-        "tcm/syndrome_reasoning",
-    ],
-    "industry_manual": [
-        "nexus/industry_manual",
-        "industry/equipment_topology",
-        "industry/operation_flow",
-        "industry/failure_case",
-        "industry/safety_control",
-        "industry/emergency_response",
-    ],
-    "smart_campus": [
-        "nexus/smart_campus",
-        "industry/equipment_topology",
-        "industry/failure_case",
-        "industry/safety_control",
-        "industry/emergency_response",
-        "general/base_spatio_temporal_graph",
-    ],
-    "legal_case": [
-        "nexus/legal_case",
-        "legal/case_citation",
-        "legal/case_fact_timeline",
-        "legal/contract_obligation",
-        "legal/compliance_list",
-    ],
-    "biography": [
-        "nexus/biography",
-        "general/biography_graph",
-    ],
-    "workflow_doc": [
-        "nexus/workflow_doc",
-        "general/workflow_graph",
-        "industry/operation_flow",
-    ],
-}
-
-BUSINESS_DOMAIN_TAGS: dict[str, str] = {
-    "business": "finance",
-    "engineering": "industry",
-    "legal": "legal",
-    "healthcare": "medicine",
-    "medicine": "medicine",
-    "tcm": "tcm",
-}
 
 #: Hyper-Extract graph-family types — all share the entities/relations output structure.
 _GRAPH_TYPES: frozenset[str] = frozenset({
@@ -170,41 +57,6 @@ class TemplateRecord:
     language: list[str]
     description: str
     identifiers: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class TemplateSelection:
-    """Ranked template candidate for one document classification."""
-
-    template_id: str
-    name: str
-    template_type: str
-    tags: list[str]
-    relative_path: str
-    template_hash: str
-    description: str
-    identifiers: dict[str, Any]
-    score: float
-    reason: str
-    is_primary: bool
-    graph_compatible: bool
-
-    def as_dict(self) -> dict[str, Any]:
-        """Serialize selection metadata for the kgraph context JSON contract."""
-        return {
-            "template_id": self.template_id,
-            "name": self.name,
-            "type": self.template_type,
-            "tags": self.tags,
-            "relative_path": self.relative_path,
-            "template_hash": self.template_hash,
-            "description": self.description,
-            "identifiers": self.identifiers,
-            "score": round(self.score, 3),
-            "reason": self.reason,
-            "is_primary": self.is_primary,
-            "graph_compatible": self.graph_compatible,
-        }
 
 
 @dataclass
@@ -303,75 +155,6 @@ class TemplateRegistry:
             return None
 
 
-class TemplateSelector:
-    """Select ranked Hyper-Extract template candidates for a classified document."""
-
-    def __init__(self, registry: TemplateRegistry | None = None) -> None:
-        self._registry = registry or TemplateRegistry()
-
-    def select(
-        self,
-        doc_type: str,
-        *,
-        business_domain: str | None = None,
-        max_candidates: int = 5,
-    ) -> list[TemplateSelection]:
-        """Return ranked template candidates for kgraph input preparation."""
-        selected: list[TemplateSelection] = []
-        seen: set[str] = set()
-        explicit_ids = DOC_TYPE_TEMPLATE_HINTS.get(doc_type)
-        reason = "doc_type" if explicit_ids else "fallback"
-        candidate_ids = explicit_ids or DOC_TYPE_TEMPLATE_HINTS["general"]
-
-        for index, template_id in enumerate(candidate_ids):
-            record = self._registry.get(template_id)
-            if record is None:
-                continue
-            selected.append(self._selection_from_record(record, 1.0 - index * 0.08, reason, not selected))
-            seen.add(record.template_id)
-
-        domain_tag = BUSINESS_DOMAIN_TAGS.get(business_domain or "")
-        if domain_tag:
-            for index, record in enumerate(self._registry.list(filter_by_tag=domain_tag)):
-                if record.template_id in seen:
-                    continue
-                selected.append(
-                    self._selection_from_record(
-                        record,
-                        0.6 - min(index, 4) * 0.03,
-                        "business_domain",
-                        not selected,
-                    )
-                )
-                seen.add(record.template_id)
-                if len(selected) >= max_candidates:
-                    break
-
-        return selected[:max_candidates]
-
-    def _selection_from_record(
-        self,
-        record: TemplateRecord,
-        score: float,
-        reason: str,
-        is_primary: bool,
-    ) -> TemplateSelection:
-        return TemplateSelection(
-            template_id=record.template_id,
-            name=record.name,
-            template_type=record.template_type,
-            tags=record.tags,
-            relative_path=record.relative_path,
-            template_hash=record.template_hash,
-            description=record.description,
-            identifiers=record.identifiers,
-            score=max(score, 0.0),
-            reason=reason,
-            is_primary=is_primary,
-            graph_compatible=record.template_type in (_GRAPH_TYPES | _FLAT_TYPES),
-        )
-
-
 class HyperExtractTemplateAdapter:
     """Load and adapt a Hyper-Extract YAML preset to knowledge_nexus ontology format."""
 
@@ -384,11 +167,15 @@ class HyperExtractTemplateAdapter:
     # ------------------------------------------------------------------
 
     def adapt(self, doc_type: str) -> OntologyResult | None:
-        """Return :class:`OntologyResult` for *doc_type* via TEMPLATE_MAP, or ``None``."""
-        rel_path = TEMPLATE_MAP.get(doc_type)
-        if rel_path is None:
-            return None
-        return self.adapt_by_id(rel_path)
+        """Return :class:`OntologyResult` for the generic ``general/base_graph`` fallback.
+
+        .. deprecated::
+            ``adapt(doc_type)`` no longer uses a static doc_type→template map.
+            Prefer :meth:`adapt_by_id` or :class:`SemanticTemplateMatcher` for
+            proper template selection.  This method exists only as a last-resort
+            fallback when no embedding service is configured.
+        """
+        return self.adapt_by_id("general/base_graph")
 
     def adapt_by_id(self, template_id: str) -> OntologyResult | None:
         """Return :class:`OntologyResult` for any template by registry ID.
@@ -401,9 +188,7 @@ class HyperExtractTemplateAdapter:
         * **flat-record** (``model``, ``list``, ``set``) — flat ``output.fields``
           become concepts; a generic ``RELATES_TO`` relation is added so the
           extractor prompt always has at least one relation hint.
-        * **nexus-v1** schema — loaded directly from the YAML's
-          ``concepts``/``relations``/``instructions`` keys (legacy; will be
-          removed once nexus templates are deleted).
+
 
         Args:
             template_id: Registry-style identifier such as ``"finance/earnings_summary"``.
@@ -468,13 +253,9 @@ class HyperExtractTemplateAdapter:
         """Convert a Hyper-Extract YAML to ``{concepts, relations, instructions}``.
 
         Dispatch rules:
-        - ``schema: nexus-v1`` → direct load (legacy nexus format).
         - ``type`` in ``_FLAT_TYPES`` (model/list/set) → flat-field conversion.
         - Everything else (graph-family, unknown) → entities/relations blocks.
         """
-        if raw.get("schema") == "nexus-v1":
-            return self._build_nexus_ontology(raw)
-
         output = raw.get("output", {})
         guideline = raw.get("guideline", {})
         graph_type: str = raw.get("type", "graph")
@@ -497,17 +278,6 @@ class HyperExtractTemplateAdapter:
             "concepts":     self._parse_concepts(output.get("entities", {})),
             "relations":    self._parse_relations(output.get("relations", {})),
             "instructions": self._build_instructions(guideline),
-        }
-
-    def _build_nexus_ontology(self, raw: dict) -> dict[str, Any]:
-        """Directly load concepts/relations/instructions from a nexus-v1 YAML."""
-        instructions = raw.get("instructions", "")
-        if isinstance(instructions, list):
-            instructions = " ".join(instructions)
-        return {
-            "concepts":     list(raw.get("concepts", [])),
-            "relations":    list(raw.get("relations", [])),
-            "instructions": str(instructions).strip() or "Extract named, specific entities only.",
         }
 
     def _parse_concepts(self, entities_block: dict) -> list[dict[str, str]]:
