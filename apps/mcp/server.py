@@ -154,6 +154,7 @@ explain_graph_evidence = _knowledge_os_tools["explain_graph_evidence"]
 ask_knowledge_graph = _knowledge_os_tools["ask_knowledge_graph"]
 mark_source_deleted = _knowledge_os_tools["mark_source_deleted"]
 purge_knowledge = _knowledge_os_tools["purge_knowledge"]
+delete_graph_nodes = _knowledge_os_tools["delete_graph_nodes"]
 
 
 # ---------------------------------------------------------------------------

@@ -190,6 +190,41 @@ def register_knowledge_os_tools(
         result = EvidenceService(store, repository=get_repository()).purge(uri, mode=mode)
         return json.dumps(result, ensure_ascii=False, indent=2)
 
+    @mcp.tool()
+    def delete_graph_nodes(uri: str) -> str:
+        """Physically delete all Neo4j nodes and edges contributed by a source document.
+
+        This is a **hard delete**: the file node, all its relationships, and any
+        entity nodes that become isolated are permanently removed from Neo4j.
+        Postgres evidence records for this URI are also purged so the graph and
+        metadata stay in sync.
+
+        ⚠️  Irreversible — confirm the exact URI with the user before calling.
+
+        Args:
+            uri: The cloudreve:// URI of the source document whose graph data
+                 should be deleted.
+        """
+        if neo4j_store is None:
+            return json.dumps(
+                {"error": "Neo4j is not available; cannot perform hard delete."},
+                ensure_ascii=False,
+            )
+        try:
+            neo4j_store.delete_file(uri)
+            evidence_result = EvidenceService(store, repository=get_repository()).purge(uri, mode="knowledge")
+            return json.dumps(
+                {
+                    "deleted_uri": uri,
+                    "neo4j": "nodes and edges removed",
+                    "evidence": evidence_result,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        except Exception as exc:
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
     # ── Phase 5: governance tools ──────────────────────────────────────────────
 
     @mcp.tool()
@@ -258,6 +293,7 @@ def register_knowledge_os_tools(
         "ask_knowledge_graph": ask_knowledge_graph,
         "mark_source_deleted": mark_source_deleted,
         "purge_knowledge": purge_knowledge,
+        "delete_graph_nodes": delete_graph_nodes,
         "get_knowledge_dashboard": get_knowledge_dashboard,
         "list_candidate_batches": list_candidate_batches,
         "bulk_review_batch": bulk_review_batch,
