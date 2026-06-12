@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from core.services.template_adapter import HyperExtractTemplateAdapter
+from core.services.semantic_matcher import SemanticTemplateMatcher
 from core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,7 @@ class KnowledgeExtractor:
         two_stage_extraction: bool = False,
         embedding_service: Any | None = None,
         semantic_dedup_threshold: float = 0.88,
+        template_top_k: int = 3,
     ) -> None:
         """Create a KnowledgeExtractor.
 
@@ -168,9 +170,14 @@ class KnowledgeExtractor:
                 (nodes first, then edges with node context) for higher relation
                 accuracy.  Doubles LLM calls but improves precision.
             embedding_service: Optional service with ``embed_batch(texts)``
-                for semantic entity deduplication after merge.
+                for semantic entity deduplication *and* semantic template
+                matching.  When provided, ``_get_ontology`` uses
+                ``SemanticTemplateMatcher`` instead of the static TEMPLATE_MAP.
             semantic_dedup_threshold: Cosine-similarity threshold above which
                 two entity labels are considered duplicates (default 0.88).
+            template_top_k: Number of best-matching templates whose ontologies
+                are fused together (default 3). Only used when
+                *embedding_service* is provided.
         """
         settings = Settings.from_env()
         self.api_key = api_key or settings.zhipu_api_key or settings.openai_api_key
@@ -182,6 +189,11 @@ class KnowledgeExtractor:
         self.two_stage_extraction = two_stage_extraction
         self.embedding_service = embedding_service
         self.semantic_dedup_threshold = semantic_dedup_threshold
+        self._template_matcher: SemanticTemplateMatcher | None = (
+            SemanticTemplateMatcher(embedding_service=embedding_service, top_k=template_top_k)
+            if embedding_service is not None
+            else None
+        )
     
     def extract(
         self,
@@ -189,6 +201,7 @@ class KnowledgeExtractor:
         doc_type: str = "general",
         ontology: dict | None = None,
         strategy: str = "llm_extract",
+        filename: str = "",
     ) -> ExtractedKnowledge:
         """Extract knowledge from text, routing by *strategy*.
 
@@ -203,6 +216,8 @@ class KnowledgeExtractor:
             doc_type: Category label (academic_paper, tabular_data, …).
             ontology: Custom ontology (uses default if not provided).
             strategy: Extraction strategy hint from the DocumentClassifier.
+            filename: Original filename; used by SemanticTemplateMatcher as
+                      an additional matching signal when no ontology is given.
 
         Returns:
             ExtractedKnowledge with entities, relations, and summary.
@@ -211,7 +226,7 @@ class KnowledgeExtractor:
             return self._mock_extraction(text, doc_type)
 
         if ontology is None:
-            ontology = self._get_ontology(doc_type)
+            ontology = self._get_ontology(doc_type, text=text, filename=filename)
 
         # ── Tabular / structural path ──────────────────────────────────────────
         if strategy == "structural_summary" or doc_type == "tabular_data":
@@ -750,25 +765,45 @@ Rules:
         except Exception:
             return summaries[0]
 
-    def _get_ontology(self, doc_type: str) -> dict:
-        """Return the ontology for *doc_type* via the YAML template adapter.
+    def _get_ontology(self, doc_type: str, *, text: str = "", filename: str = "") -> dict:
+        """Return the ontology for the given document.
 
         Resolution order:
-        1. nexus-v1 YAML template for the exact doc_type  → fully adapted ontology.
-        2. nexus-v1 YAML template for 'general'           → broad fallback ontology.
-        3. _EMERGENCY_FALLBACK_ONTOLOGY                   → last resort (YAML missing).
+        1. **Semantic matching** (when an embedding_service was provided) —
+           ``SemanticTemplateMatcher`` embeds the document preview and ranks
+           all 37 HE templates, returning a fused Top-K ontology.
+        2. **Static TEMPLATE_MAP** — adapts the YAML template mapped to
+           *doc_type* (legacy path; used when no embedding_service is set).
+        3. **'general' fallback** — broad HE base_graph ontology.
+        4. **_EMERGENCY_FALLBACK_ONTOLOGY** — last resort if all YAMLs fail.
 
         Each returned dict contains:
-        - ``concepts``: list of {type, description}
-        - ``relations``: list of {relation, source, target, description}
+        - ``concepts``: list of ``{type, description}``
+        - ``relations``: list of ``{relation, source, target, description}``
         - ``instructions``: extraction guidance string
         """
+        # ── Path 1: Semantic template matching ────────────────────────────────
+        if self._template_matcher is not None:
+            matched = self._template_matcher.match(text=text, filename=filename)
+            if matched is not None:
+                logger.info(
+                    "Using semantic template matcher for doc_type=%s, filename=%r",
+                    doc_type, filename,
+                )
+                return matched
+            logger.warning(
+                "SemanticTemplateMatcher returned None for doc_type=%s; falling back",
+                doc_type,
+            )
+
+        # ── Path 2: Static TEMPLATE_MAP (legacy) ──────────────────────────────
         adapter = HyperExtractTemplateAdapter()
         result = adapter.adapt(doc_type)
         if result is not None and not result.is_native_fallback:
             logger.debug("Using YAML template ontology for doc_type=%s", doc_type)
             return result.ontology
 
+        # ── Path 3: 'general' fallback ────────────────────────────────────────
         if doc_type != "general":
             general = adapter.adapt("general")
             if general is not None and not general.is_native_fallback:

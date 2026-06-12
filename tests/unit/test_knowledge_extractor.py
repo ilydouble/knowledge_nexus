@@ -668,3 +668,112 @@ def test_extract_tabular_doc_type_alone_triggers_structural_path():
     extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
     result = extractor.extract("Sheet 1: 100 rows", doc_type="tabular_data")
     assert len(http_client.requests) == 1
+
+
+# ---------------------------------------------------------------------------
+# SemanticTemplateMatcher
+# ---------------------------------------------------------------------------
+
+from core.services.semantic_matcher import SemanticTemplateMatcher
+from core.services.embedding import DeterministicEmbeddingService
+
+
+class _FakeEmbeddingService:
+    """Records calls and returns deterministic vectors."""
+
+    def __init__(self, dimensions: int = 64) -> None:
+        self._inner = DeterministicEmbeddingService(dimensions=dimensions)
+        self.calls: list[list[str]] = []
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        return self._inner.embed_batch(texts)
+
+
+def test_semantic_matcher_returns_merged_ontology():
+    """match() returns a dict with concepts and relations from top-K templates."""
+    svc = _FakeEmbeddingService()
+    matcher = SemanticTemplateMatcher(embedding_service=svc, top_k=2)
+
+    result = matcher.match(text="Annual report risk factors", filename="risk_report.pdf")
+
+    assert result is not None
+    assert "concepts" in result and "relations" in result and "instructions" in result
+    assert len(result["concepts"]) > 0
+    assert len(result["relations"]) > 0
+
+
+def test_semantic_matcher_skips_nexus_templates():
+    """Nexus/ templates are excluded from the candidate set by default."""
+    svc = _FakeEmbeddingService()
+    matcher = SemanticTemplateMatcher(embedding_service=svc, top_k=3)
+    matcher.match(text="test", filename="test.pdf")
+
+    # Template embedding texts should not include any nexus/ template
+    embedded_templates = matcher._template_vectors or {}
+    assert not any(tid.startswith("nexus/") for tid in embedded_templates)
+
+
+def test_semantic_matcher_deduplicates_merged_concepts():
+    """Merged ontology has no duplicate concept types even across multiple templates."""
+    svc = _FakeEmbeddingService()
+    matcher = SemanticTemplateMatcher(embedding_service=svc, top_k=3)
+
+    result = matcher.match(text="legal contract obligations", filename="contract.pdf")
+
+    assert result is not None
+    types = [c["type"] for c in result["concepts"]]
+    assert len(types) == len(set(types)), "Duplicate concept types in merged ontology"
+
+
+def test_semantic_matcher_caches_template_vectors():
+    """Template vectors are embedded only once across multiple match() calls."""
+    svc = _FakeEmbeddingService()
+    matcher = SemanticTemplateMatcher(embedding_service=svc, top_k=2)
+
+    matcher.match(text="first call", filename="a.pdf")
+    matcher.match(text="second call", filename="b.pdf")
+
+    # First call: 1 batch for templates + 1 for document query = 2 calls
+    # Second call: no template re-embedding + 1 for document query = 1 call
+    assert len(svc.calls) == 3
+
+
+def test_semantic_matcher_graceful_failure_returns_none():
+    """If embed_batch raises, match() returns None (graceful degradation)."""
+
+    class FailingEmbedService:
+        def embed_batch(self, texts):
+            raise RuntimeError("API down")
+
+    matcher = SemanticTemplateMatcher(embedding_service=FailingEmbedService(), top_k=2)
+    result = matcher.match(text="some text", filename="doc.pdf")
+    assert result is None
+
+
+def test_get_ontology_uses_semantic_matcher_when_embedding_service_provided():
+    """KnowledgeExtractor._get_ontology uses SemanticTemplateMatcher when embedding_service set."""
+    svc = _FakeEmbeddingService()
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None, embedding_service=svc)
+
+    ontology = extractor._get_ontology("general", text="medical drug interaction study", filename="med.pdf")
+
+    assert "concepts" in ontology
+    assert len(ontology["concepts"]) > 0
+    # At least one embed_batch call was made (template vectors)
+    assert len(svc.calls) >= 1
+
+
+def test_get_ontology_falls_back_when_matcher_returns_none():
+    """If SemanticTemplateMatcher fails, _get_ontology falls back to TEMPLATE_MAP."""
+
+    class AlwaysFailEmbed:
+        def embed_batch(self, texts):
+            raise RuntimeError("fail")
+
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=None,
+                                   embedding_service=AlwaysFailEmbed())
+    # Should not raise; falls back to nexus YAML or emergency fallback
+    ontology = extractor._get_ontology("general")
+    assert "concepts" in ontology
+    assert len(ontology["concepts"]) > 0
