@@ -1,13 +1,30 @@
+from unittest.mock import MagicMock
 from urllib.parse import quote
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apps.api.factory import create_application
+from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
+from knowledge_os.interfaces.api import register_knowledge_os_api
 from core.repositories.memory import InMemoryRepository
 
 
 def make_client():
     return TestClient(create_application(repository=InMemoryRepository()))
+
+
+def make_direct_client(neo4j_store):
+    """Build an app wired with a specific neo4j_store (real-or-None) for delete tests."""
+    app = FastAPI()
+    store = InMemoryKnowledgeOSStore()
+    register_knowledge_os_api(
+        app,
+        repository=InMemoryRepository(),
+        get_store=lambda: store,
+        neo4j_store=neo4j_store,
+    )
+    return TestClient(app)
 
 
 def test_admin_candidate_api_supports_extract_review_preview_commit_and_evidence():
@@ -60,3 +77,28 @@ def test_admin_candidate_api_supports_extract_review_preview_commit_and_evidence
     deleted_response = client.post(f"/api/admin/documents/{encoded_uri}/mark-source-deleted")
     assert deleted_response.status_code == 200
     assert deleted_response.json()["evidence_marked_stale"] == 1
+
+
+def test_delete_graph_endpoint_hard_deletes_neo4j_and_purges_evidence():
+    neo4j = MagicMock()
+    neo4j.delete_file = MagicMock(return_value=None)
+    client = make_direct_client(neo4j)
+
+    encoded_uri = quote("cloudreve://my/report.md", safe="")
+    response = client.delete(f"/api/admin/documents/{encoded_uri}/graph")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deleted_uri"] == "cloudreve://my/report.md"
+    assert body["neo4j"] == "nodes and edges removed"
+    neo4j.delete_file.assert_called_once_with("cloudreve://my/report.md")
+
+
+def test_delete_graph_endpoint_returns_503_when_neo4j_unavailable():
+    client = make_direct_client(None)
+
+    encoded_uri = quote("cloudreve://my/report.md", safe="")
+    response = client.delete(f"/api/admin/documents/{encoded_uri}/graph")
+
+    assert response.status_code == 503
+    assert "Neo4j" in response.json()["detail"]

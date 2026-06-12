@@ -192,6 +192,7 @@ bulk_review_batch(batch_id, action="accept")
 | `POST /api/admin/candidates/{id}/commit` | 提交入库（Neo4j MERGE + graph_evidence） |
 | `GET  /api/admin/graph/evidence` | 查询图谱条目的证据溯源 |
 | `GET  /api/admin/graph/stale` | 陈旧证据报告 |
+| `DELETE /api/admin/documents/{uri}/graph` | 硬删除：物理清除该来源的 Neo4j 节点/边 + purge 证据 |
 | `GET  /api/graph` | Neo4j 全图 / 文档 1-hop 邻域 |
 | `POST /api/graph/ask` | 图谱自然语言问答（Agent3） |
 | `GET  /api/auth/cloudreve/status` | Cloudreve OAuth 授权状态 |

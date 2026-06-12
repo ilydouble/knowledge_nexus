@@ -158,6 +158,29 @@ def register_knowledge_os_api(
         mode = (payload or {}).get("mode") or "knowledge"
         return EvidenceService(store, repository=repository).purge(uri, mode=mode)
 
+    @app.delete("/api/admin/documents/{uri:path}/graph")
+    def admin_delete_graph_nodes(
+        uri: str,
+        store: KnowledgeOSStore = Depends(get_store),
+    ) -> dict[str, Any]:
+        """Hard-delete all Neo4j nodes/edges for a source URI and purge its evidence.
+
+        Irreversible: removes the file node, its relationships, any orphaned
+        entity nodes, then purges the Postgres evidence so both stores stay in
+        sync.
+        """
+        if neo4j_store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Neo4j is not available; cannot perform hard delete.",
+            )
+        try:
+            neo4j_store.delete_file(uri)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        evidence = EvidenceService(store, repository=repository).purge(uri, mode="knowledge")
+        return {"deleted_uri": uri, "neo4j": "nodes and edges removed", "evidence": evidence}
+
     # ── Phase 5: governance endpoints ─────────────────────────────────────────
 
     @app.get("/api/admin/dashboard")

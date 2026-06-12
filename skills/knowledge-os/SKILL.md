@@ -54,12 +54,18 @@ until a batch is **committed**. The normal sequence:
 
 ## Governance (use with care)
 
-These only affect Postgres metadata; they do **not** physically wipe Neo4j
-nodes unless a re-scan runs:
+Soft governance — these only affect Postgres metadata; they do **not**
+physically wipe Neo4j nodes unless a re-scan runs:
 
 - `python3 kn stale` — report stale/purged evidence grouped by source.
 - `python3 kn mark-deleted "<uri>"` — mark a source removed, stale its evidence.
 - `python3 kn purge "<uri>" [--mode knowledge]` — purge evidence for a source.
+
+Hard delete — **irreversible**, physically removes graph data:
+
+- `python3 kn delete-graph "<uri>"` — DETACH DELETE the file node, its edges,
+  and any orphaned entity nodes from Neo4j, then purge its Postgres evidence so
+  both stores stay in sync. Only run after the user explicitly confirms the URI.
 
 Cloudreve sync:
 
@@ -82,7 +88,8 @@ Cloudreve sync:
 | `graph [--uri U]` | full graph or 1-hop neighborhood |
 | `evidence [--item ID] [--source U]` | evidence trace |
 | `stale` | stale/purged evidence report |
-| `mark-deleted <uri>` / `purge <uri> [--mode M]` | source governance |
+| `mark-deleted <uri>` / `purge <uri> [--mode M]` | source governance (soft) |
+| `delete-graph <uri>` | hard-delete Neo4j nodes/edges + purge evidence |
 | `scan` / `scan-status` | Cloudreve full scan |
 
 ## Safety rules
@@ -91,3 +98,5 @@ Cloudreve sync:
   asked for `accept-all` + commit). Show `preview` output first when unsure.
 - `purge` and `mark-deleted` are destructive to metadata — confirm the exact
   `uri` with the user before running them.
+- `delete-graph` is an irreversible hard delete of graph data — always confirm
+  the exact `uri` with the user and never run it speculatively.
