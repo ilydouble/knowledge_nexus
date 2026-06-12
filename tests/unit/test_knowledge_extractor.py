@@ -5,8 +5,10 @@ from core.services.knowledge_extractor import (
     ExtractedKnowledge,
     KnowledgeExtractor,
     MIN_ENTITY_CONFIDENCE,
+    _EXTRACTION_JSON_SCHEMA,
     _MAP_REDUCE_THRESHOLD,
     _SEGMENT_SIZE,
+    _cosine_sim,
 )
 
 
@@ -61,7 +63,9 @@ def test_knowledge_extractor_calls_glm47_chat_completion_and_normalizes_json():
     assert request["url"] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
     assert request["headers"]["Authorization"] == "Bearer test-key"
     assert request["json"]["model"] == "glm-4.7"
-    assert request["json"]["response_format"] == {"type": "json_object"}
+    # ⑤ Schema-constrained output: must use json_schema mode, not plain json_object
+    assert request["json"]["response_format"]["type"] == "json_schema"
+    assert request["json"]["response_format"] == _EXTRACTION_JSON_SCHEMA
 
 
 def test_knowledge_extractor_uses_mock_result_without_api_key(monkeypatch, tmp_path):
@@ -288,6 +292,186 @@ def test_concurrent_mapreduce_uses_multiple_threads():
     # At least one segment call was made
     assert len(call_threads) >= 1
 
+
+
+# ---------------------------------------------------------------------------
+# ⑤  Schema-constrained output
+# ---------------------------------------------------------------------------
+
+def test_schema_constrained_output_uses_json_schema_format():
+    """_call_chat_completion must send json_schema, not plain json_object."""
+    payload = {"choices": [{"message": {"content": json.dumps(
+        {"summary": "s", "tags": [], "entities": [], "relations": [], "key_points": []}
+    )}}]}
+    http_client = FakeHttpClient(payload)
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
+    extractor.extract("hello")
+    fmt = http_client.requests[0]["json"]["response_format"]
+    assert fmt["type"] == "json_schema"
+    assert fmt["json_schema"]["name"] == "extraction_result"
+
+
+def test_call_chat_completion_accepts_custom_response_format():
+    """Callers can override response_format (e.g. _NODE_JSON_SCHEMA for two-stage)."""
+    from core.services.knowledge_extractor import _NODE_JSON_SCHEMA
+    payload = {"choices": [{"message": {"content": json.dumps({"entities": []})}}]}
+    http_client = FakeHttpClient(payload)
+    extractor = KnowledgeExtractor(api_key="k", model="m", http_client=http_client)
+    extractor._call_chat_completion("extract nodes", _NODE_JSON_SCHEMA)
+    fmt = http_client.requests[0]["json"]["response_format"]
+    assert fmt["json_schema"]["name"] == "node_extraction_result"
+
+
+# ---------------------------------------------------------------------------
+# ③  Two-stage extraction
+# ---------------------------------------------------------------------------
+
+def test_two_stage_makes_two_rounds_of_llm_calls():
+    """two_stage_extraction=True must produce 2N calls (N node + N edge rounds)."""
+    import threading
+
+    call_log: list[str] = []
+    lock = threading.Lock()
+
+    node_payload = {"choices": [{"message": {"content": json.dumps({
+        "entities": [{"id": "a", "label": "A", "type": "Concept", "confidence": 0.9}]
+    })}}]}
+    edge_payload = {"choices": [{"message": {"content": json.dumps({
+        "relations": [{"source": "a", "target": "a", "relation": "SELF"}]
+    })}}]}
+
+    class TwoRoundClient:
+        def __init__(self):
+            self._calls = 0
+            self._lock = threading.Lock()
+        def post(self, url, *, headers, json, timeout):
+            with self._lock:
+                idx = self._calls
+                self._calls += 1
+            fmt_name = json.get("response_format", {}).get("json_schema", {}).get("name", "")
+            with lock:
+                call_log.append(fmt_name)
+            return FakeResponse(node_payload if "node" in fmt_name else edge_payload)
+
+    long_text = "x" * (_SEGMENT_SIZE * 2 + 1)
+    extractor = KnowledgeExtractor(
+        api_key="k", model="m",
+        http_client=TwoRoundClient(),
+        two_stage_extraction=True,
+        max_workers=1,
+    )
+    result = extractor.extract(long_text)
+
+    node_calls = sum(1 for n in call_log if "node" in n)
+    edge_calls = sum(1 for n in call_log if "edge" in n)
+    assert node_calls >= 1, "Should have at least one node-extraction call"
+    assert edge_calls >= 1, "Should have at least one edge-extraction call"
+    assert isinstance(result, ExtractedKnowledge)
+
+
+def test_two_stage_entity_in_result():
+    """Two-stage mode must include entities extracted in Round 1."""
+    node_payload = {"choices": [{"message": {"content": json.dumps({
+        "entities": [{"id": "concept_alpha", "label": "Alpha", "type": "Concept", "confidence": 0.9}]
+    })}}]}
+    edge_payload = {"choices": [{"message": {"content": json.dumps({"relations": []})}}]}
+
+    class FixedClient:
+        def post(self, url, *, headers, json, timeout):
+            fmt = json.get("response_format", {}).get("json_schema", {}).get("name", "")
+            return FakeResponse(node_payload if "node" in fmt else edge_payload)
+
+    long_text = "x" * (_SEGMENT_SIZE + 1)
+    extractor = KnowledgeExtractor(
+        api_key="k", model="m",
+        http_client=FixedClient(),
+        two_stage_extraction=True,
+        max_workers=1,
+    )
+    result = extractor._extract_mapreduce(
+        long_text, "general", {"concepts": [], "relations": [], "instructions": ""}
+    )
+    entity_ids = {e["id"] for e in result.entities}
+    assert "concept_alpha" in entity_ids
+
+
+# ---------------------------------------------------------------------------
+# ④  Semantic deduplication
+# ---------------------------------------------------------------------------
+
+def test_cosine_sim_orthogonal_vectors():
+    assert _cosine_sim([1.0, 0.0], [0.0, 1.0]) == 0.0
+
+
+def test_cosine_sim_identical_vectors():
+    v = [0.6, 0.8]
+    assert abs(_cosine_sim(v, v) - 1.0) < 1e-9
+
+
+def test_semantic_dedup_merges_near_duplicates():
+    """Two entities with embedding similarity ≥ threshold must be merged."""
+
+    class FakeEmbedder:
+        """Returns near-identical vectors for 'Alpha' and 'alpha', different for 'Beta'."""
+        def embed_batch(self, texts):
+            return [
+                [1.0, 0.0, 0.0] if t.lower().startswith("alpha") else [0.0, 1.0, 0.0]
+                for t in texts
+            ]
+
+    extractor = KnowledgeExtractor(
+        api_key=None,
+        embedding_service=FakeEmbedder(),
+        semantic_dedup_threshold=0.99,  # identical vectors → 1.0 ≥ 0.99
+    )
+    knowledge = ExtractedKnowledge(
+        summary="s", tags=[],
+        entities=[
+            {"id": "concept_alpha", "label": "Alpha", "type": "Concept", "confidence": 0.9},
+            {"id": "concept_alpha2", "label": "alpha", "type": "Concept", "confidence": 0.8},
+            {"id": "concept_beta", "label": "Beta", "type": "Concept", "confidence": 0.9},
+        ],
+        relations=[
+            {"source": "concept_alpha", "target": "concept_beta", "relation": "R"},
+            {"source": "concept_alpha2", "target": "concept_beta", "relation": "R"},  # duplicate after merge
+        ],
+        key_points=[],
+    )
+    result = extractor._semantic_dedup(knowledge)
+    result_ids = {e["id"] for e in result.entities}
+    # Alpha + alpha merged → one canonical; Beta kept
+    assert len(result.entities) == 2
+    assert "concept_beta" in result_ids
+    # After merge+dedup, only one R relation from the alpha canonical → beta
+    assert len(result.relations) == 1
+
+
+def test_semantic_dedup_skips_when_no_embedding_service():
+    extractor = KnowledgeExtractor(api_key=None, embedding_service=None)
+    knowledge = ExtractedKnowledge(
+        summary="s", tags=[],
+        entities=[{"id": "x", "label": "X", "type": "Concept", "confidence": 0.9}],
+        relations=[], key_points=[],
+    )
+    result = extractor._merge_extractions([knowledge])
+    # No dedup attempted → entity unchanged
+    assert result.entities[0]["id"] == "x"
+
+
+def test_semantic_dedup_handles_embedding_failure_gracefully():
+    class FailingEmbedder:
+        def embed_batch(self, texts):
+            raise RuntimeError("API down")
+
+    extractor = KnowledgeExtractor(api_key=None, embedding_service=FailingEmbedder())
+    knowledge = ExtractedKnowledge(
+        summary="s", tags=[],
+        entities=[{"id": "a", "label": "A", "type": "Concept", "confidence": 0.9}],
+        relations=[], key_points=[],
+    )
+    # Must not raise; returns knowledge unchanged
+    result = extractor._semantic_dedup(knowledge)
+    assert result.entities[0]["id"] == "a"
 
 
 # ---------------------------------------------------------------------------

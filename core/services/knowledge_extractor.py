@@ -57,6 +57,89 @@ _MAP_REDUCE_THRESHOLD: int = 10_000
 #: Minimum entity confidence score; lower entries are dropped during merge.
 MIN_ENTITY_CONFIDENCE: float = 0.5
 
+# ---------------------------------------------------------------------------
+# JSON Schema response formats (used with response_format={"type":"json_schema"})
+# ---------------------------------------------------------------------------
+_ENTITY_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "id":          {"type": "string"},
+        "label":       {"type": "string"},
+        "type":        {"type": "string"},
+        "description": {"type": "string"},
+        "confidence":  {"type": "number"},
+    },
+    "required": ["id", "label", "type"],
+}
+_RELATION_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "source":   {"type": "string"},
+        "target":   {"type": "string"},
+        "relation": {"type": "string"},
+        "evidence": {"type": "string"},
+    },
+    "required": ["source", "target", "relation"],
+}
+_KEY_POINT_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "content":    {"type": "string"},
+        "type":       {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["content"],
+}
+
+def _make_json_schema(name: str, schema: dict) -> dict[str, Any]:
+    return {"type": "json_schema", "json_schema": {"name": name, "schema": schema}}
+
+#: Full extraction output schema (single-pass and map-reduce one-stage).
+_EXTRACTION_JSON_SCHEMA: dict[str, Any] = _make_json_schema("extraction_result", {
+    "type": "object",
+    "properties": {
+        "summary":    {"type": "string"},
+        "tags":       {"type": "array", "items": {"type": "string"}},
+        "entities":   {"type": "array", "items": _ENTITY_ITEM_SCHEMA},
+        "relations":  {"type": "array", "items": _RELATION_ITEM_SCHEMA},
+        "key_points": {"type": "array", "items": _KEY_POINT_ITEM_SCHEMA},
+    },
+    "required": ["summary", "tags", "entities", "relations", "key_points"],
+})
+#: Nodes-only schema for two-stage Stage-1.
+_NODE_JSON_SCHEMA: dict[str, Any] = _make_json_schema("node_extraction_result", {
+    "type": "object",
+    "properties": {"entities": {"type": "array", "items": _ENTITY_ITEM_SCHEMA}},
+    "required": ["entities"],
+})
+#: Edges-only schema for two-stage Stage-2.
+_EDGE_JSON_SCHEMA: dict[str, Any] = _make_json_schema("edge_extraction_result", {
+    "type": "object",
+    "properties": {"relations": {"type": "array", "items": _RELATION_ITEM_SCHEMA}},
+    "required": ["relations"],
+})
+#: Minimal schema for summary synthesis.
+_SUMMARY_JSON_SCHEMA: dict[str, Any] = _make_json_schema("summary_result", {
+    "type": "object",
+    "properties": {"summary": {"type": "string"}},
+    "required": ["summary"],
+})
+
+
+# ---------------------------------------------------------------------------
+# Module-level utilities
+# ---------------------------------------------------------------------------
+
+def _cosine_sim(v1: list[float], v2: list[float]) -> float:
+    """Cosine similarity between two float vectors (handles zero-norm safely)."""
+    dot = sum(a * b for a, b in zip(v1, v2))
+    n1 = sum(a * a for a in v1) ** 0.5
+    n2 = sum(b * b for b in v2) ** 0.5
+    if n1 == 0.0 or n2 == 0.0:
+        return 0.0
+    return dot / (n1 * n2)
+
+
 class KnowledgeExtractor:
     """Extract structured knowledge from text using GLM-compatible chat completions."""
 
@@ -68,7 +151,27 @@ class KnowledgeExtractor:
         http_client: Any | None = None,
         timeout: float = 180.0,
         max_workers: int = 4,
+        two_stage_extraction: bool = False,
+        embedding_service: Any | None = None,
+        semantic_dedup_threshold: float = 0.88,
     ) -> None:
+        """Create a KnowledgeExtractor.
+
+        Args:
+            api_key: LLM API key (falls back to env vars).
+            model: LLM model name.
+            base_url: LLM chat-completions endpoint.
+            http_client: Injected HTTP client (for testing).
+            timeout: Per-request timeout seconds.
+            max_workers: Parallel segment workers for map-reduce.
+            two_stage_extraction: When True, map-reduce uses two LLM rounds
+                (nodes first, then edges with node context) for higher relation
+                accuracy.  Doubles LLM calls but improves precision.
+            embedding_service: Optional service with ``embed_batch(texts)``
+                for semantic entity deduplication after merge.
+            semantic_dedup_threshold: Cosine-similarity threshold above which
+                two entity labels are considered duplicates (default 0.88).
+        """
         settings = Settings.from_env()
         self.api_key = api_key or settings.zhipu_api_key or settings.openai_api_key
         self.model = model or settings.llm_model
@@ -76,6 +179,9 @@ class KnowledgeExtractor:
         self.http_client = http_client or httpx.Client(timeout=timeout)
         self.timeout = timeout
         self.max_workers = max_workers
+        self.two_stage_extraction = two_stage_extraction
+        self.embedding_service = embedding_service
+        self.semantic_dedup_threshold = semantic_dedup_threshold
     
     def extract(
         self,
@@ -179,7 +285,21 @@ Rules:
                 raw_response={"error": str(exc)},
             )
 
-    def _call_chat_completion(self, prompt: str) -> dict[str, Any]:
+    def _call_chat_completion(
+        self,
+        prompt: str,
+        response_format: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call the LLM chat-completions endpoint and return parsed JSON.
+
+        Args:
+            prompt: User-turn content.
+            response_format: OpenAI-compatible response_format dict.
+                Defaults to ``_EXTRACTION_JSON_SCHEMA`` (json_schema mode).
+                Pass ``{"type": "json_object"}`` for free-form JSON calls.
+        """
+        if response_format is None:
+            response_format = _EXTRACTION_JSON_SCHEMA
         response = self.http_client.post(
             self.base_url,
             headers={
@@ -192,7 +312,7 @@ Rules:
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt},
                 ],
-                "response_format": {"type": "json_object"},
+                "response_format": response_format,
                 "temperature": 0.2,
                 "max_tokens": 4096,
             },
@@ -224,49 +344,226 @@ Rules:
     ) -> ExtractedKnowledge:
         """Extract knowledge from a long document via concurrent map-reduce.
 
-        Segments are dispatched in parallel (ThreadPoolExecutor) so N segments
-        take ~1× latency instead of N×.  Relation endpoint pruning is deferred
-        to ``_merge_extractions`` so cross-segment relations are not dropped.
+        Dispatches to one-stage (default) or two-stage mode depending on
+        ``self.two_stage_extraction``.  Both paths use ``ThreadPoolExecutor``
+        for parallel LLM calls and defer relation pruning until after the
+        global merge so cross-segment relations are preserved.
         """
         segments = self._split_text(text)
         logger.info(
-            "Map-reduce: %d segments × ~%d chars each (max_workers=%d)",
-            len(segments), _SEGMENT_SIZE, self.max_workers,
+            "Map-reduce: %d segments × ~%d chars (workers=%d, two_stage=%s)",
+            len(segments), _SEGMENT_SIZE, self.max_workers, self.two_stage_extraction,
         )
 
-        def _process(args: tuple[int, str]) -> ExtractedKnowledge:
-            i, segment = args
-            prompt = self._build_extraction_prompt(segment, ontology, doc_type)
-            raw = self._call_chat_completion(prompt)
-            # Skip per-segment relation pruning; global pruning happens after merge
-            partial = self._normalize_result(raw, doc_type, prune_dangling_relations=False)
-            logger.debug(
-                "Segment %d/%d: %d entities, %d relations",
-                i + 1, len(segments), len(partial.entities), len(partial.relations),
-            )
-            return partial
-
-        partials: list[ExtractedKnowledge] = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            future_to_idx = {
-                pool.submit(_process, (i, seg)): i
-                for i, seg in enumerate(segments)
-            }
-            for future in concurrent.futures.as_completed(future_to_idx):
-                i = future_to_idx[future]
-                try:
-                    partials.append(future.result())
-                except Exception as exc:
-                    logger.warning("Segment %d/%d failed: %s", i + 1, len(segments), exc)
+        if self.two_stage_extraction:
+            partials = self._extract_two_stage(segments, doc_type, ontology)
+        else:
+            partials = self._extract_one_stage(segments, doc_type, ontology)
 
         if not partials:
-            # All segments failed — fall back to single-pass on the first window
             logger.warning("All segments failed; falling back to single-pass")
             prompt = self._build_extraction_prompt(text[:_SINGLE_PASS_LIMIT], ontology, doc_type)
             raw = self._call_chat_completion(prompt)
             return self._normalize_result(raw, doc_type)
 
         return self._merge_extractions(partials)
+
+    # ------------------------------------------------------------------
+    # One-stage concurrent extraction
+    # ------------------------------------------------------------------
+
+    def _extract_one_stage(
+        self, segments: list[str], doc_type: str, ontology: dict
+    ) -> list[ExtractedKnowledge]:
+        """Extract entities+relations for each segment in one concurrent LLM round."""
+        n = len(segments)
+
+        def _process(args: tuple[int, str]) -> ExtractedKnowledge:
+            i, segment = args
+            prompt = self._build_extraction_prompt(segment, ontology, doc_type)
+            raw = self._call_chat_completion(prompt)
+            partial = self._normalize_result(raw, doc_type, prune_dangling_relations=False)
+            logger.debug("Seg %d/%d: %d entities, %d relations",
+                         i + 1, n, len(partial.entities), len(partial.relations))
+            return partial
+
+        partials: list[ExtractedKnowledge] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            fut_idx = {pool.submit(_process, (i, seg)): i for i, seg in enumerate(segments)}
+            for fut in concurrent.futures.as_completed(fut_idx):
+                i = fut_idx[fut]
+                try:
+                    partials.append(fut.result())
+                except Exception as exc:
+                    logger.warning("Seg %d/%d failed: %s", i + 1, n, exc)
+        return partials
+
+    # ------------------------------------------------------------------
+    # Two-stage concurrent extraction
+    # ------------------------------------------------------------------
+
+    def _extract_two_stage(
+        self, segments: list[str], doc_type: str, ontology: dict
+    ) -> list[ExtractedKnowledge]:
+        """Two-round extraction: nodes first, then edges with node context.
+
+        Round 1 — concurrent node extraction across all segments.
+        Round 2 — concurrent edge extraction; each segment receives its own
+                  extracted nodes as ``known_nodes`` context, preventing the
+                  LLM from hallucinating endpoints.
+
+        Cross-segment relation pruning is deferred to ``_merge_extractions``.
+        """
+        n = len(segments)
+
+        # ── Round 1: parallel node extraction ─────────────────────────────────
+        def _extract_nodes(args: tuple[int, str]) -> tuple[int, list[dict]]:
+            i, segment = args
+            raw = self._call_chat_completion(
+                self._build_node_prompt(segment, ontology, doc_type), _NODE_JSON_SCHEMA
+            )
+            entities = raw.get("entities", [])
+            for e in entities:  # ensure stable IDs
+                if not e.get("id"):
+                    e["id"] = (
+                        f"{e.get('type', 'concept').lower()}_"
+                        f"{e.get('label', 'unknown').lower().replace(' ', '_')}"
+                    )
+            entities = [e for e in entities if float(e.get("confidence", 1.0)) >= MIN_ENTITY_CONFIDENCE]
+            logger.debug("Two-stage R1 seg %d/%d: %d nodes", i + 1, n, len(entities))
+            return i, entities
+
+        seg_entities: dict[int, list[dict]] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            futs = {pool.submit(_extract_nodes, (i, seg)): i for i, seg in enumerate(segments)}
+            for fut in concurrent.futures.as_completed(futs):
+                i = futs[fut]
+                try:
+                    _, ents = fut.result()
+                    seg_entities[i] = ents
+                except Exception as exc:
+                    logger.warning("Two-stage R1 seg %d failed: %s", i + 1, exc)
+                    seg_entities[i] = []
+
+        # ── Round 2: parallel edge extraction (node-context-aware) ────────────
+        def _extract_edges(args: tuple[int, str, list[dict]]) -> tuple[int, list[dict]]:
+            i, segment, entities = args
+            raw = self._call_chat_completion(
+                self._build_edge_prompt(segment, ontology, doc_type, entities), _EDGE_JSON_SCHEMA
+            )
+            relations = raw.get("relations", [])
+            logger.debug("Two-stage R2 seg %d/%d: %d edges", i + 1, n, len(relations))
+            return i, relations
+
+        seg_relations: dict[int, list[dict]] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            futs = {
+                pool.submit(_extract_edges, (i, seg, seg_entities.get(i, []))): i
+                for i, seg in enumerate(segments)
+            }
+            for fut in concurrent.futures.as_completed(futs):
+                i = futs[fut]
+                try:
+                    _, rels = fut.result()
+                    seg_relations[i] = rels
+                except Exception as exc:
+                    logger.warning("Two-stage R2 seg %d failed: %s", i + 1, exc)
+                    seg_relations[i] = []
+
+        return [
+            ExtractedKnowledge(
+                summary="",  # synthesised in _merge_extractions if any segment has one
+                tags=[],
+                entities=seg_entities.get(i, []),
+                relations=seg_relations.get(i, []),
+                key_points=[],
+                confidence=0.8,
+            )
+            for i in range(n)
+        ]
+
+    def _build_node_prompt(self, text: str, ontology: dict, doc_type: str) -> str:
+        """Stage-1 prompt: extract entities only (no relations)."""
+        concept_lines = [
+            f"- **{c['type']}**: {c.get('description', '')}"
+            for c in ontology.get("concepts", [])
+        ]
+        concepts_block = "\n".join(concept_lines) or "- Entity: any named item"
+        instructions = ontology.get("instructions", "Extract named, specific entities only.")
+
+        return f"""Extract ALL entities/nodes from the text. Do NOT extract relations yet.
+
+## Document Type: {doc_type}
+
+## Entity Types (use ONLY these; unknown types → "Concept")
+{concepts_block}
+
+## Extraction Instructions
+{instructions}
+
+## Output (JSON only)
+{{
+  "entities": [
+    {{"id": "<type_lower>_<label_snake>", "label": "Display Name",
+      "type": "EntityType", "description": "one sentence", "confidence": 0.9}}
+  ]
+}}
+
+Rules:
+1. IDs: lowercase(type) + "_" + snake_case(label).
+2. confidence < 0.8 when uncertain; entries < 0.5 are discarded automatically.
+
+## Text
+{text}
+"""
+
+    def _build_edge_prompt(
+        self,
+        text: str,
+        ontology: dict,
+        doc_type: str,
+        known_entities: list[dict],
+    ) -> str:
+        """Stage-2 prompt: extract relations between known nodes only."""
+        relation_lines = [
+            f"- **{r['relation']}**: {r.get('source', 'Entity')} → "
+            f"{r.get('target', 'Entity')}  _{r.get('description', '')}_"
+            for r in ontology.get("relations", [])
+        ]
+        relations_block = "\n".join(relation_lines) or "- RELATES_TO: Entity → Entity"
+
+        node_lines = (
+            "\n".join(f"- {e['id']} ({e.get('label', '')})" for e in known_entities)
+            if known_entities
+            else "(no entities identified in this segment)"
+        )
+
+        return f"""Extract relations between the known entities below. Do NOT create new entities.
+
+## Document Type: {doc_type}
+
+## Known Entities — endpoints MUST be IDs from this list
+{node_lines}
+
+## Relation Types (use ONLY these)
+{relations_block}
+
+## Output (JSON only)
+{{
+  "relations": [
+    {{"source": "<entity_id>", "target": "<entity_id>",
+      "relation": "RELATION_TYPE", "evidence": "brief quote or paraphrase"}}
+  ]
+}}
+
+Rules:
+1. source and target MUST be IDs from the Known Entities list above.
+2. Use ONLY the listed relation types.
+3. Only assert relations clearly stated or strongly implied — no hallucination.
+
+## Text
+{text}
+"""
 
     def _merge_extractions(
         self, results: list[ExtractedKnowledge]
@@ -330,13 +627,110 @@ Rules:
             else (summaries[0] if summaries else "")
         )
 
-        return ExtractedKnowledge(
+        merged = ExtractedKnowledge(
             summary=final_summary,
             tags=merged_tags,
             entities=merged_entities,
             relations=merged_relations,
             key_points=merged_kp,
             confidence=min(r.confidence for r in results),
+        )
+
+        # ── Optional semantic deduplication ───────────────────────────────────
+        if self.embedding_service is not None:
+            merged = self._semantic_dedup(merged)
+
+        return merged
+
+    def _semantic_dedup(self, knowledge: ExtractedKnowledge) -> ExtractedKnowledge:
+        """Merge near-duplicate entities using embedding cosine similarity.
+
+        Entities whose label embeddings exceed ``self.semantic_dedup_threshold``
+        are clustered via Union-Find and merged into the highest-confidence
+        representative.  All relation endpoints are remapped to canonical IDs,
+        and a final dangling-edge prune is performed afterwards.
+        """
+        entities = knowledge.entities
+        if len(entities) < 2:
+            return knowledge
+
+        labels = [e.get("label", e.get("id", "")) for e in entities]
+        try:
+            vectors = self.embedding_service.embed_batch(labels)
+        except Exception as exc:
+            logger.warning("Semantic dedup skipped (embedding failed): %s", exc)
+            return knowledge
+
+        n = len(entities)
+        parent = list(range(n))
+
+        def _find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def _union(x: int, y: int) -> None:
+            px, py = _find(x), _find(y)
+            if px != py:
+                parent[px] = py
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if _cosine_sim(vectors[i], vectors[j]) >= self.semantic_dedup_threshold:
+                    _union(i, j)
+
+        # Group indices by cluster root
+        clusters: dict[int, list[int]] = {}
+        for i in range(n):
+            clusters.setdefault(_find(i), []).append(i)
+
+        merged_entities: list[dict] = []
+        id_map: dict[str, str] = {}  # old_id → canonical_id
+
+        for members in clusters.values():
+            if len(members) == 1:
+                merged_entities.append(entities[members[0]])
+                continue
+            best = max(members, key=lambda i: float(entities[i].get("confidence", 0.8)))
+            canonical = entities[best]
+            canonical_id = canonical["id"]
+            for m in members:
+                old_id = entities[m]["id"]
+                if old_id != canonical_id:
+                    id_map[old_id] = canonical_id
+            merged_entities.append(canonical)
+
+        if not id_map:
+            return knowledge  # nothing was merged
+
+        logger.info("Semantic dedup: merged %d duplicate entity/entities", len(id_map))
+
+        # Remap relation endpoints + deduplicate
+        seen_keys: set[tuple[str, str, str]] = set()
+        new_relations: list[dict] = []
+        for rel in knowledge.relations:
+            src = id_map.get(rel.get("source", ""), rel.get("source", ""))
+            tgt = id_map.get(rel.get("target", ""), rel.get("target", ""))
+            key = (src, tgt, rel.get("relation", ""))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                new_relations.append({**rel, "source": src, "target": tgt})
+
+        # Final dangling-edge prune after ID remapping
+        all_ids = {e["id"] for e in merged_entities}
+        new_relations = [
+            r for r in new_relations
+            if r.get("source", "") in all_ids and r.get("target", "") in all_ids
+        ]
+
+        return ExtractedKnowledge(
+            summary=knowledge.summary,
+            tags=knowledge.tags,
+            entities=merged_entities,
+            relations=new_relations,
+            key_points=knowledge.key_points,
+            confidence=knowledge.confidence,
         )
 
     def _synthesize_summary(self, summaries: list[str]) -> str:
@@ -351,7 +745,7 @@ Rules:
             'Return JSON: {"summary": "unified summary here"}'
         )
         try:
-            result = self._call_chat_completion(prompt)
+            result = self._call_chat_completion(prompt, _SUMMARY_JSON_SCHEMA)
             return result.get("summary", summaries[0])
         except Exception:
             return summaries[0]
