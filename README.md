@@ -1,6 +1,6 @@
 # Knowledge OS
 
-Knowledge OS 是以知识生命周期为中心的 AI 知识管理系统。以 Cloudreve 为物理文件底座，以 Neo4j 知识图谱为语义层，通过受控的**候选→审核→入库**工作流保证知识质量，并通过 MCP 协议将图谱开放给 Pi-Agent / Claude Code 等 AI 智能体。
+Knowledge OS 是以知识生命周期为中心的 AI 知识管理系统。以 Cloudreve 为物理文件底座，以 Neo4j 知识图谱为语义层，通过受控的**候选→审核→入库**工作流保证知识质量，并向 AI 智能体开放：Claude Code 等原生 MCP 客户端走 MCP Server，[pi coding agent](https://github.com/earendil-works/pi) 走自带的 pi Skill。
 
 核心原则：
 
@@ -67,7 +67,7 @@ cd apps/web && npm run dev
 python -m apps.worker.main
 ```
 
-**④ MCP Server（供 Pi-Agent / Claude Code 接入）**
+**④ MCP Server（供 Claude Code 等原生 MCP 客户端接入）**
 
 ```bash
 python -m apps.mcp.server
