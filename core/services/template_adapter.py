@@ -5,9 +5,8 @@ format (concepts / relations / instructions) consumed by KnowledgeExtractor and
 KGraphContextBuilder.
 
 Pipeline position:
-    DocumentClassifier
-      -> TemplateSelector (via TEMPLATE_MAP)
-      -> HyperExtractTemplateAdapter.adapt()
+    SemanticTemplateMatcher
+      -> HyperExtractTemplateAdapter.adapt_by_id()  (Top-K templates)
       -> OntologyResult  {ontology, template_meta, is_native_fallback}
       -> KnowledgeExtractor / KGraphContextBuilder
 """
@@ -145,8 +144,13 @@ BUSINESS_DOMAIN_TAGS: dict[str, str] = {
     "tcm": "tcm",
 }
 
-#: Only these Hyper-Extract graph types produce a fully-adapted ontology.
-_GRAPH_TYPES: frozenset[str] = frozenset({"graph"})
+#: Hyper-Extract graph-family types — all share the entities/relations output structure.
+_GRAPH_TYPES: frozenset[str] = frozenset({
+    "graph", "hypergraph", "temporal_graph", "spatial_graph", "spatio_temporal_graph"
+})
+
+#: Flat record types — output.fields is a flat list; no entities/relations sub-blocks.
+_FLAT_TYPES: frozenset[str] = frozenset({"model", "list", "set"})
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -364,7 +368,7 @@ class TemplateSelector:
             score=max(score, 0.0),
             reason=reason,
             is_primary=is_primary,
-            graph_compatible=record.template_type in _GRAPH_TYPES,
+            graph_compatible=record.template_type in (_GRAPH_TYPES | _FLAT_TYPES),
         )
 
 
@@ -380,36 +384,52 @@ class HyperExtractTemplateAdapter:
     # ------------------------------------------------------------------
 
     def adapt(self, doc_type: str) -> OntologyResult | None:
-        """Return :class:`OntologyResult` for *doc_type*, or ``None`` if no
-        template is mapped / found on disk."""
+        """Return :class:`OntologyResult` for *doc_type* via TEMPLATE_MAP, or ``None``."""
         rel_path = TEMPLATE_MAP.get(doc_type)
         if rel_path is None:
             return None
+        return self.adapt_by_id(rel_path)
 
-        record = self._registry.get(rel_path)
+    def adapt_by_id(self, template_id: str) -> OntologyResult | None:
+        """Return :class:`OntologyResult` for any template by registry ID.
+
+        Supports all Hyper-Extract template types:
+
+        * **graph-family** (``graph``, ``hypergraph``, ``temporal_graph``,
+          ``spatial_graph``, ``spatio_temporal_graph``) — converted via
+          ``output.entities`` / ``output.relations``.
+        * **flat-record** (``model``, ``list``, ``set``) — flat ``output.fields``
+          become concepts; a generic ``RELATES_TO`` relation is added so the
+          extractor prompt always has at least one relation hint.
+        * **nexus-v1** schema — loaded directly from the YAML's
+          ``concepts``/``relations``/``instructions`` keys (legacy; will be
+          removed once nexus templates are deleted).
+
+        Args:
+            template_id: Registry-style identifier such as ``"finance/earnings_summary"``.
+
+        Returns:
+            :class:`OntologyResult` with ``is_native_fallback=False``, or
+            ``None`` if the template YAML cannot be found on disk.
+        """
+        record = self._registry.get(template_id)
         if record is None:
-            logger.debug("Template YAML not found: %s", rel_path)
+            logger.debug("Template not found: %s", template_id)
             return None
 
-        raw = self._registry.load(record.template_id)
+        raw = self._registry.load(template_id)
         if raw is None:
             return None
 
         meta = self._extract_meta(raw, record)
-        graph_type: str = raw.get("type", "graph")
-
-        if graph_type not in _GRAPH_TYPES:
-            logger.debug(
-                "Template '%s' has type=%s — metadata-only (no ontology adaptation)",
-                rel_path, graph_type,
-            )
-            return OntologyResult(template_meta=meta, is_native_fallback=True)
-
         ontology = self._build_ontology(raw)
-        logger.debug("Adapted template '%s' → %d concepts, %d relations",
-                     rel_path,
-                     len(ontology.get("concepts", [])),
-                     len(ontology.get("relations", [])))
+        logger.debug(
+            "Adapted template '%s' (type=%s) → %d concepts, %d relations",
+            template_id,
+            raw.get("type", "graph"),
+            len(ontology.get("concepts", [])),
+            len(ontology.get("relations", [])),
+        )
         return OntologyResult(ontology=ontology, template_meta=meta, is_native_fallback=False)
 
     # ------------------------------------------------------------------
@@ -445,10 +465,34 @@ class HyperExtractTemplateAdapter:
         }
 
     def _build_ontology(self, raw: dict) -> dict[str, Any]:
+        """Convert a Hyper-Extract YAML to ``{concepts, relations, instructions}``.
+
+        Dispatch rules:
+        - ``schema: nexus-v1`` → direct load (legacy nexus format).
+        - ``type`` in ``_FLAT_TYPES`` (model/list/set) → flat-field conversion.
+        - Everything else (graph-family, unknown) → entities/relations blocks.
+        """
         if raw.get("schema") == "nexus-v1":
             return self._build_nexus_ontology(raw)
+
         output = raw.get("output", {})
         guideline = raw.get("guideline", {})
+        graph_type: str = raw.get("type", "graph")
+
+        if graph_type in _FLAT_TYPES:
+            return {
+                "concepts": self._parse_flat_concepts(output),
+                "relations": [{
+                    "relation": "RELATES_TO",
+                    "source": "Entity",
+                    "target": "Entity",
+                    "description": "General semantic relationship between entities",
+                }],
+                "instructions": self._build_instructions(guideline),
+            }
+
+        # graph-family (graph, hypergraph, temporal_graph, spatial_graph,
+        # spatio_temporal_graph) and any future graph-like types
         return {
             "concepts":     self._parse_concepts(output.get("entities", {})),
             "relations":    self._parse_relations(output.get("relations", {})),
@@ -518,6 +562,25 @@ class HyperExtractTemplateAdapter:
             "target": "Entity",
             "description": "General semantic relationship between entities",
         }]
+
+    def _parse_flat_concepts(self, output: dict) -> list[dict[str, str]]:
+        """Convert flat ``output.fields`` (model/list/set templates) to concepts.
+
+        Each field whose name is not a structural meta-field becomes a concept
+        type.  The field's English description is used as the concept description.
+        """
+        fields: list[dict] = output.get("fields", [])
+        # Skip purely structural / display fields shared across all flat templates
+        skip = {"name", "description", "display_label"}
+        concepts: list[dict[str, str]] = []
+        for f in fields:
+            fname = f.get("name", "")
+            if not fname or fname in skip:
+                continue
+            desc = self._en(f.get("description", {}))
+            label = fname.replace("_", " ").title().replace(" ", "")
+            concepts.append({"type": label, "description": desc or f"{label} entity."})
+        return concepts or [{"type": "Entity", "description": "A named entity in the document."}]
 
     def _build_instructions(self, guideline: dict) -> str:
         parts: list[str] = []
