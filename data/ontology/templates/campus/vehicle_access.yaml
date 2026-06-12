@@ -1,0 +1,98 @@
+language: [zh, en]
+
+name: vehicle_access
+type: graph
+tags: [campus, security, vehicle, parking, access_control]
+
+description:
+  zh: '车辆通行图模板 - 从园区车辆登记、停车管理或通行授权记录中提取车辆、驾驶人、车主、通行许可与停车位之间的归属与授权关系。'
+  en: 'Vehicle Access Graph Template - Extract attribution and authorization relationships among vehicles, drivers, owners, access permits and parking spaces from campus vehicle registration, parking management or access authorization records.'
+
+output:
+  description:
+    zh: '车辆与驾驶人、车主、许可、停车位之间的关系网络。'
+    en: 'Relationship network among vehicles, drivers, owners, permits and parking spaces.'
+  entities:
+    description:
+      zh: '车辆、人员、许可与停车实体节点。'
+      en: 'Vehicle, person, permit and parking entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '实体名称（车牌号/人名/许可编号/车位号），使用文本中最稳定、最清晰的称呼。'
+          en: 'Entity name (plate number/person name/permit id/parking slot id), using the most stable and clear designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '实体类型。例如：车辆/车牌/驾驶人/车主/通行许可/停车位/停车场/单位等'
+          en: 'Entity type. Examples: vehicle/license_plate/driver/owner/access_permit/parking_space/parking_lot/organization, etc.'
+        required: true
+      - name: attribute
+        type: str
+        description:
+          zh: '补充属性（如车型/颜色/许可有效期）；无信息时可留空。'
+          en: 'Supplementary attribute (e.g., vehicle model/color/permit validity); can be left empty when no information is available.'
+        required: false
+  relations:
+    description:
+      zh: '车辆与人员、许可、停车位之间的归属与授权关系。'
+      en: 'Attribution and authorization relationships among vehicles, people, permits and parking spaces.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '源实体，必须对应已提取实体的名称。'
+          en: 'Source entity, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '目标实体，必须对应已提取实体的名称。'
+          en: 'Target entity, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：驾驶/拥有/持有许可/停放于/登记于/可通行等'
+          en: 'Relation type: driven_by/owned_by/has_permit/parked_at/registered_to/authorized_to_enter, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '关系补充说明；无额外信息时可留空。'
+          en: 'Supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位园区车辆管理专家，负责从登记与授权记录中准确提取车辆、人员、许可与停车位之间的关系。'
+    en: 'You are a campus vehicle management expert responsible for accurately extracting relationships among vehicles, people, permits and parking spaces from registration and authorization records.'
+  rules_for_entities:
+    zh:
+      - '车辆以车牌号作为稳定标识。'
+      - '区分驾驶人与车主。'
+      - '同一实体在全文中保持命名一致。'
+    en:
+      - 'Use the plate number as the stable identifier for vehicles.'
+      - 'Distinguish drivers from owners.'
+      - 'Maintain consistent naming for the same entity throughout the text.'
+  rules_for_relations:
+    zh:
+      - '“持有许可”表示车辆或人员持有某通行许可。'
+      - '仅提取文本中明确表达的归属与授权关系。'
+    en:
+      - 'has_permit indicates a vehicle or person holds an access permit.'
+      - 'Only extract attribution and authorization relationships explicitly expressed in the text.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}'
+  relation_members:
+    source: source
+    target: target
+
+display:
+  entity_label: '{name}'
+  relation_label: '{type}'

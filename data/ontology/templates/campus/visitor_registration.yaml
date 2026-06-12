@@ -1,0 +1,102 @@
+language: [zh, en]
+
+name: visitor_registration
+type: model
+tags: [campus, security, visitor, registration, access_control]
+
+description:
+  zh: '访客登记模板 - 从园区访客登记表、来访预约或门岗登记记录中提取单条访客登记的结构化信息（访客、证件、来访单位、被访人、随行车辆、来访事由与时间等）。'
+  en: 'Visitor Registration Template - Extract structured information of a single visitor registration (visitor, ID document, visiting organization, host, accompanying vehicle, purpose and time, etc.) from campus visitor registration forms, appointment records or gate logs.'
+
+output:
+  description:
+    zh: '单条访客登记的结构化记录。'
+    en: 'Structured record of a single visitor registration.'
+  fields:
+    - name: name
+      type: str
+      description:
+        zh: '访客姓名，使用文本中最稳定、最清晰的称呼。'
+        en: 'Visitor name, using the most stable and clear designation in the text.'
+      required: true
+    - name: id_type
+      type: str
+      description:
+        zh: '证件类型与编号。例如：身份证/护照/工牌等'
+        en: 'ID document type and number. Examples: id_card/passport/employee_badge, etc.'
+      required: false
+    - name: visitor_organization
+      type: str
+      description:
+        zh: '访客所属单位或公司。'
+        en: 'Visiting organization or company of the visitor.'
+      required: false
+    - name: host_person
+      type: str
+      description:
+        zh: '被访人（接待人）。'
+        en: 'Host person (the person being visited).'
+      required: false
+    - name: host_department
+      type: str
+      description:
+        zh: '被访部门。'
+        en: 'Host department.'
+      required: false
+    - name: vehicle_plate
+      type: str
+      description:
+        zh: '随行车辆车牌号；无车辆时留空。'
+        en: 'Accompanying vehicle plate number; leave empty when there is no vehicle.'
+      required: false
+    - name: visit_purpose
+      type: str
+      description:
+        zh: '来访事由。例如：商务洽谈/设备维修/面试/送货等'
+        en: 'Purpose of visit. Examples: business_meeting/equipment_maintenance/interview/delivery, etc.'
+      required: false
+    - name: visit_area
+      type: str
+      description:
+        zh: '来访区域或楼宇。'
+        en: 'Visited area or building.'
+      required: false
+    - name: entry_time
+      type: str
+      description:
+        zh: '入园时间，写为 YYYY-MM-DD HH:MM。'
+        en: 'Entry time, written as YYYY-MM-DD HH:MM.'
+      required: false
+    - name: exit_time
+      type: str
+      description:
+        zh: '离园时间，写为 YYYY-MM-DD HH:MM。'
+        en: 'Exit time, written as YYYY-MM-DD HH:MM.'
+      required: false
+    - name: credential_no
+      type: str
+      description:
+        zh: '发放的临时通行证或访客卡编号。'
+        en: 'Issued temporary pass or visitor card number.'
+      required: false
+    - name: description
+      type: str
+      description:
+        zh: '备注信息。'
+        en: 'Remarks.'
+      required: false
+
+guideline:
+  target:
+    zh: '你是一位园区门岗登记专家。请从文本中提取单条访客登记记录，并填写其结构化字段。'
+    en: 'You are a campus gate registration expert. Extract a single visitor registration record from the text and fill in its structured fields.'
+  rules:
+    zh:
+      - '提取文本中核心的单条访客登记，并尽量补全字段。'
+      - '时间统一规范为 YYYY-MM-DD HH:MM；无明确信息的字段留空，不要臆测。'
+    en:
+      - 'Extract the core single visitor registration from the text and complete the fields as much as possible.'
+      - 'Normalize times to YYYY-MM-DD HH:MM; leave fields empty when no explicit information is available, do not guess.'
+
+display:
+  label: '{name}'

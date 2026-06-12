@@ -1,0 +1,119 @@
+language: [zh, en]
+
+name: access_event_timeline
+type: temporal_graph
+tags: [campus, security, access_control, people, vehicle, timeline]
+
+description:
+  zh: '出入事件时序图模板 - 从园区门禁/闸口记录、安保日志或通行记录中提取人员与车辆进出园区的通行事件及其凭证认证、放行/拒绝关系，并补充时间属性。'
+  en: 'Access Event Timeline Template - Extract entry/exit events of people and vehicles through campus gates from access-control/gate records, security logs or passage records, including credential authentication and grant/deny relationships, with temporal attributes.'
+
+output:
+  description:
+    zh: '人员/车辆进出园区的通行事件时序图谱。'
+    en: 'Temporal graph of entry/exit access events of people and vehicles at a campus.'
+  entities:
+    description:
+      zh: '人员、车辆、卡口、凭证与通行事件实体节点。'
+      en: 'Person, vehicle, gate, credential and access-event entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '实体名称（人名/车牌号/闸口名/事件标识），使用文本中最明确、最稳定的称呼。'
+          en: 'Entity name (person name/plate number/gate name/event id), using the most explicit and stable designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '实体类型。例如：人员/车辆/闸口/通行点/凭证/通行事件/访客/员工等'
+          en: 'Entity type. Examples: person/vehicle/gate/access_point/credential/access_event/visitor/employee, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '对实体的简要说明；无额外信息时可留空。'
+          en: 'Brief description of the entity; can be left empty when no additional information is available.'
+        required: false
+  relations:
+    description:
+      zh: '人员/车辆与卡口、凭证之间的进出与认证关系；若文本提供时间则补充时间属性。'
+      en: 'Entry/exit and authentication relationships between people/vehicles and gates/credentials; temporal attributes added when time information is available.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '关系起点实体，必须对应已提取实体的名称。'
+          en: 'Source entity of the relation, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '关系终点实体，必须对应已提取实体的名称。'
+          en: 'Target entity of the relation, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：进入/离开/经由/使用凭证/认证/放行/拒绝等'
+          en: 'Relation type: enters_through/exits_through/uses_credential/authenticated_by/granted_access/denied_access, etc.'
+        required: true
+      - name: time
+        type: str
+        description:
+          zh: '通行时间；无明确时间时可留空。例如：2024-05-01 08:12 等'
+          en: 'Access time; can be left empty if no explicit time. Examples: 2024-05-01 08:12, etc.'
+        required: false
+      - name: description
+        type: str
+        description:
+          zh: '对关系的补充说明（如拒绝原因）；无信息时可留空。'
+          en: 'Supplementary explanation for the relation (e.g., reason for denial); can be left empty when no information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位园区安防分析专家。请从通行记录中提取人员与车辆进出园区的事件及其认证与放行/拒绝关系；如果文本提供了时间信息，再为关系补充时间属性。'
+    en: 'You are a campus security analysis expert. Extract entry/exit events of people and vehicles and their authentication and grant/deny relationships from passage records; supplement temporal attributes when time information is provided.'
+  rules_for_entities:
+    zh:
+      - '提取人员、车辆、卡口与凭证作为实体。'
+      - '车辆以车牌号作为稳定标识；同一实体在全文中保持命名一致。'
+    en:
+      - 'Extract people, vehicles, gates and credentials as entities.'
+      - 'Use the plate number as the stable identifier for vehicles; maintain consistent naming for the same entity throughout the text.'
+  rules_for_relations:
+    zh:
+      - '区分“进入”与“离开”方向。'
+      - '“拒绝”关系应尽量在 description 中记录拒绝原因。'
+      - '仅提取文本中明确表达的通行与认证关系。'
+    en:
+      - 'Distinguish the direction between enters_through and exits_through.'
+      - 'For denied_access relations, record the reason in description when possible.'
+      - 'Only extract passage and authentication relationships explicitly expressed in the text.'
+  rules_for_time:
+    zh:
+      - '当前观察日期：{observation_time}'
+      - 'time 是可选字段；仅在文本明确提供时间，或可依据相对时间可靠换算时填写。'
+      - '若给出完整日期时间，写为 YYYY-MM-DD HH:MM；若仅有日期则写为 YYYY-MM-DD；保留可确定的最细粒度。'
+      - '无法可靠确定时间时留空，不要根据常识补写。'
+    en:
+      - 'Current observation date: {observation_time}'
+      - 'time is optional; fill in only when the text explicitly provides time or relative time can be reliably converted.'
+      - 'Write full datetimes as YYYY-MM-DD HH:MM; write date-only as YYYY-MM-DD; preserve the finest determinable granularity.'
+      - 'Leave empty when time cannot be reliably determined.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}|{time}'
+  relation_members:
+    source: source
+    target: target
+  time_field: time
+
+options:
+  extraction_mode: two_stage
+
+display:
+  entity_label: '{name} ({type})'
+  relation_label: '{type}@{time}'

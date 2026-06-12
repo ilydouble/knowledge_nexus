@@ -10,13 +10,17 @@ def test_registry_discovers_full_bundled_template_library():
     records = registry.list()
     template_ids = {record.template_id for record in records}
 
-    # Exactly 37 Hyper-Extract templates; no nexus/ templates
-    assert len(records) == 37
+    # 37 upstream Hyper-Extract templates + 10 campus/ local templates = 47
+    assert len(records) == 47
     assert not any(tid.startswith("nexus/") for tid in template_ids)
     assert "finance/earnings_summary" in template_ids
     assert "medicine/drug_interaction" in template_ids
     assert "industry/equipment_topology" in template_ids
     assert "legal/case_citation" in template_ids
+    # campus/ local extension templates
+    assert "campus/space_hierarchy" in template_ids
+    assert "campus/access_event_timeline" in template_ids
+    assert "campus/visitor_registration" in template_ids
 
 
 def test_registry_filters_templates_by_type_tag_and_language():
@@ -106,8 +110,8 @@ def test_adapter_adapt_by_id_returns_none_for_missing_template():
     assert result is None
 
 
-def test_all_37_he_templates_produce_usable_ontology():
-    """Every HE template returns a non-fallback OntologyResult with concepts."""
+def test_all_47_templates_produce_usable_ontology():
+    """Every template (37 upstream HE + 10 campus) returns a non-fallback OntologyResult with concepts."""
     registry = TemplateRegistry()
     adapter = HyperExtractTemplateAdapter(registry=registry)
 

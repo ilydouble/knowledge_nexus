@@ -1,0 +1,115 @@
+language: [zh, en]
+
+name: alarm_event_timeline
+type: temporal_graph
+tags: [campus, building, alarm, event, operations, timeline]
+
+description:
+  zh: '告警事件时序图模板 - 从楼宇运维日志、告警记录或工单中提取设备故障/告警事件及其触发、影响与处置关系，并在文本提供时间时补充时间属性。'
+  en: 'Alarm Event Timeline Template - Extract equipment fault/alarm events and their trigger, impact and disposition relationships from building O&M logs, alarm records or work orders, supplementing temporal attributes when time information is available.'
+
+output:
+  description:
+    zh: '包含告警事件、设备、测点节点及时间信息的运维时序图谱。'
+    en: 'Operational temporal graph containing alarm events, equipment and point nodes with temporal information.'
+  entities:
+    description:
+      zh: '告警事件、设备、测点与位置实体节点。'
+      en: 'Alarm event, equipment, point and location entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '事件或实体名称，使用文本中最明确、最稳定的称呼。'
+          en: 'Event or entity name, using the most explicit and stable designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '实体类型。例如：告警事件/故障/设备/测点/位置/严重等级等'
+          en: 'Entity type. Examples: alarm_event/fault/equipment/point/location/severity, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '对事件或实体的简要说明；无额外信息时可留空。'
+          en: 'Brief description of the event or entity; can be left empty when no additional information is available.'
+        required: false
+  relations:
+    description:
+      zh: '事件与设备、测点之间的触发、影响与处置关系；若文本提供时间则补充时间属性。'
+      en: 'Trigger, impact and disposition relationships between events and equipment/points; temporal attributes added when time information is available.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '关系起点实体，必须对应已提取实体的名称。'
+          en: 'Source entity of the relation, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '关系终点实体，必须对应已提取实体的名称。'
+          en: 'Target entity of the relation, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：由…触发/影响/位于/报警于/由…处置/恢复等'
+          en: 'Relation type: triggered_by/affects/located_in/raised_on/handled_by/cleared, etc.'
+        required: true
+      - name: time
+        type: str
+        description:
+          zh: '关系对应的时间；无明确时间时可留空。例如：2024-05-01 13:20/当班期间等'
+          en: 'Time associated with the relation; can be left empty if no explicit time. Examples: 2024-05-01 13:20/during_shift, etc.'
+        required: false
+      - name: description
+        type: str
+        description:
+          zh: '对关系的简要补充说明；无额外信息时可留空。'
+          en: 'Brief supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位楼宇运维分析专家。请从运维日志中提取告警事件及其触发、影响与处置关系；如果文本提供了时间信息，再为关系补充时间属性。'
+    en: 'You are a building operations analysis expert. Extract alarm events and their trigger, impact and disposition relationships from O&M logs; supplement temporal attributes when time information is provided.'
+  rules_for_entities:
+    zh:
+      - '提取告警事件、相关设备与测点作为实体。'
+      - '同一实体在全文中保持命名一致。'
+    en:
+      - 'Extract alarm events and related equipment and points as entities.'
+      - 'Maintain consistent naming for the same entity throughout the text.'
+  rules_for_relations:
+    zh:
+      - '仅在文本明确表达存在触发/影响/处置关系时创建关系边。'
+    en:
+      - 'Create relation edges only when the text explicitly expresses a trigger/impact/disposition relationship.'
+  rules_for_time:
+    zh:
+      - '当前观察日期：{observation_time}'
+      - 'time 是可选字段；仅在文本明确提供时间，或可依据相对时间可靠换算时填写。'
+      - '若给出完整日期时间，写为 YYYY-MM-DD HH:MM；若仅有日期则写为 YYYY-MM-DD；保留可确定的最细粒度。'
+      - '无法可靠确定时间时留空，不要根据常识补写。'
+    en:
+      - 'Current observation date: {observation_time}'
+      - 'time is optional; fill in only when the text explicitly provides time or relative time can be reliably converted.'
+      - 'Write full datetimes as YYYY-MM-DD HH:MM; write date-only as YYYY-MM-DD; preserve the finest determinable granularity.'
+      - 'Leave empty when time cannot be reliably determined.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}|{time}'
+  relation_members:
+    source: source
+    target: target
+  time_field: time
+
+options:
+  extraction_mode: two_stage
+
+display:
+  entity_label: '{name} ({type})'
+  relation_label: '{type}@{time}'

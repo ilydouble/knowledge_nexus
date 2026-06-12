@@ -1,0 +1,100 @@
+language: [zh, en]
+
+name: point_mapping
+type: graph
+tags: [campus, building, point, telemetry, bms, brick]
+
+description:
+  zh: '测点映射图模板 - 从楼宇自控（BMS/BA）点表、监控说明或运维手册中提取测点（传感器/设定值/命令/状态/报警）与设备、位置之间的归属与测量关系（对齐 Brick 测点模型）。'
+  en: 'Point Mapping Graph Template - Extract attribution and measurement relationships between points (sensors/setpoints/commands/statuses/alarms) and equipment/locations from BMS/BA point lists, monitoring descriptions or O&M manuals (aligned with the Brick Point model).'
+
+output:
+  description:
+    zh: '测点与设备、位置之间的归属与测量关系网络。'
+    en: 'Attribution and measurement relationship network between points and equipment/locations.'
+  entities:
+    description:
+      zh: '测点、设备与位置实体节点。'
+      en: 'Point, equipment and location entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '测点、设备或位置的名称/位号，使用文本中最稳定、最清晰的称呼。'
+          en: 'Name/tag of the point, equipment or location, using the most stable and clear designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '实体类型。例如：温度传感器/湿度传感器/设定值/命令/状态/报警/参数/计量点/设备/位置/分区等'
+          en: 'Entity type. Examples: temperature_sensor/humidity_sensor/setpoint/command/status/alarm/parameter/meter_point/equipment/location/zone, etc.'
+        required: true
+      - name: unit
+        type: str
+        description:
+          zh: '测点的工程单位（仅测点适用）。例如：℃/%/kPa/kWh/Pa 等'
+          en: 'Engineering unit of the point (for points only). Examples: degC/%/kPa/kWh/Pa, etc.'
+        required: false
+  relations:
+    description:
+      zh: '测点与设备、位置之间的归属与测量关系。'
+      en: 'Attribution and measurement relationships between points and equipment/locations.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '源实体，必须对应已提取实体的名称。'
+          en: 'Source entity, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '目标实体，必须对应已提取实体的名称。'
+          en: 'Target entity, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：拥有测点/为某对象测点/位于/测量/控制等'
+          en: 'Relation type: has_point/is_point_of/has_location/measures/controls, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '关系补充说明；无额外信息时可留空。'
+          en: 'Supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位楼宇自控（BMS）建模专家，负责从点表和监控说明中准确提取测点与设备、位置之间的归属与测量关系。'
+    en: 'You are a building automation (BMS) modeling expert responsible for accurately extracting attribution and measurement relationships between points and equipment/locations from point lists and monitoring descriptions.'
+  rules_for_entities:
+    zh:
+      - '提取测点、设备与位置作为实体。'
+      - '测点类型应区分传感器/设定值/命令/状态/报警。'
+      - '同一实体在全文中保持命名一致。'
+    en:
+      - 'Extract points, equipment and locations as entities.'
+      - 'Distinguish point types among sensor/setpoint/command/status/alarm.'
+      - 'Maintain consistent naming for the same entity throughout the text.'
+  rules_for_relations:
+    zh:
+      - '“拥有测点”表示设备或位置拥有该测点（设备→测点）。'
+      - '“测量”表示传感器测量某设备或位置的某项物理量。'
+      - '仅提取文本中明确表达的归属与测量关系。'
+    en:
+      - 'has_point indicates an equipment or location owns the point (equipment -> point).'
+      - 'measures indicates a sensor measures a physical quantity of an equipment or location.'
+      - 'Only extract attribution and measurement relationships explicitly expressed in the text.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}'
+  relation_members:
+    source: source
+    target: target
+
+display:
+  entity_label: '{name}'
+  relation_label: '{type}'

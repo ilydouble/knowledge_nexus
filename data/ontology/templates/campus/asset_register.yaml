@@ -1,0 +1,90 @@
+language: [zh, en]
+
+name: asset_register
+type: model
+tags: [campus, building, asset, inventory, realestatecore]
+
+description:
+  zh: '资产台账模板 - 从楼宇/园区资产清单、设备铭牌或采购验收记录中提取单条资产的结构化属性（厂商、型号、序列号、安装日期、保修等，对齐 RealEstateCore 资产属性）。'
+  en: 'Asset Register Template - Extract structured attributes of a single asset (manufacturer, model, serial number, install date, warranty, etc.) from building/campus asset lists, equipment nameplates or procurement/acceptance records (aligned with RealEstateCore asset attributes).'
+
+output:
+  description:
+    zh: '单条资产的结构化属性记录。'
+    en: 'Structured attribute record of a single asset.'
+  fields:
+    - name: name
+      type: str
+      description:
+        zh: '资产名称或资产编号，使用文本中最稳定、最清晰的称呼。'
+        en: 'Asset name or asset tag, using the most stable and clear designation in the text.'
+      required: true
+    - name: asset_category
+      type: str
+      description:
+        zh: '资产类别。例如：暖通设备/电气设备/给排水设备/安防设备/电梯/照明设备等'
+        en: 'Asset category. Examples: hvac_equipment/electrical_equipment/plumbing_equipment/security_equipment/elevator/lighting_equipment, etc.'
+      required: false
+    - name: manufacturer
+      type: str
+      description:
+        zh: '生产厂商或品牌。'
+        en: 'Manufacturer or brand.'
+      required: false
+    - name: model_number
+      type: str
+      description:
+        zh: '型号。'
+        en: 'Model number.'
+      required: false
+    - name: serial_number
+      type: str
+      description:
+        zh: '序列号或出厂编号。'
+        en: 'Serial number or factory number.'
+      required: false
+    - name: location
+      type: str
+      description:
+        zh: '安装位置（楼宇/楼层/房间/区域）。'
+        en: 'Installation location (building/storey/room/zone).'
+      required: false
+    - name: install_date
+      type: str
+      description:
+        zh: '安装或投用日期，写为 YYYY-MM-DD。'
+        en: 'Installation or commissioning date, written as YYYY-MM-DD.'
+      required: false
+    - name: warranty_expiry
+      type: str
+      description:
+        zh: '保修到期日期，写为 YYYY-MM-DD。'
+        en: 'Warranty expiry date, written as YYYY-MM-DD.'
+      required: false
+    - name: status
+      type: str
+      description:
+        zh: '资产状态。例如：在用/停用/维修中/报废等'
+        en: 'Asset status. Examples: in_use/decommissioned/under_maintenance/scrapped, etc.'
+      required: false
+    - name: description
+      type: str
+      description:
+        zh: '资产的简要描述或备注。'
+        en: 'Brief description or remarks for the asset.'
+      required: false
+
+guideline:
+  target:
+    zh: '你是一位资产管理专家。请从文本中提取单条资产记录，并填写其结构化属性。'
+    en: 'You are an asset management expert. Extract a single asset record from the text and fill in its structured attributes.'
+  rules:
+    zh:
+      - '提取文本中核心的单条资产，并尽量补全其属性字段。'
+      - '日期统一规范为 YYYY-MM-DD；无明确信息的字段留空，不要臆测。'
+    en:
+      - 'Extract the core single asset from the text and complete its attribute fields as much as possible.'
+      - 'Normalize dates to YYYY-MM-DD; leave fields empty when no explicit information is available, do not guess.'
+
+display:
+  label: '{name}'

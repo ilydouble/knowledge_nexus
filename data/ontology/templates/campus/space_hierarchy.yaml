@@ -1,0 +1,98 @@
+language: [zh, en]
+
+name: space_hierarchy
+type: graph
+tags: [campus, building, space, location, realestatecore]
+
+description:
+  zh: '空间层级图模板 - 从楼宇/园区图纸、空间台账或设施说明中提取园区、楼宇、楼层、房间、区域之间的空间层级与位置关系（对齐 RealEstateCore 空间模型）。'
+  en: 'Space Hierarchy Graph Template - Extract spatial hierarchy and location relationships among campus, buildings, storeys, rooms and zones from building/campus drawings, space registers or facility descriptions (aligned with the RealEstateCore space model).'
+
+output:
+  description:
+    zh: '园区与楼宇的空间层级与位置关系网络。'
+    en: 'Spatial hierarchy and location relationship network of a campus and its buildings.'
+  entities:
+    description:
+      zh: '空间实体节点。'
+      en: 'Spatial entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '空间名称或编号，使用文本中最稳定、最清晰的称呼。'
+          en: 'Space name or identifier, using the most stable and clear designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '空间类型。例如：园区/楼宇/楼层/房间/区域/暖通分区/占用分区/停车区/室外区域/空间等'
+          en: 'Space type. Examples: campus/building/storey/floor/room/zone/hvac_zone/occupancy_zone/parking_area/outdoor_area/space, etc.'
+        required: true
+      - name: usage
+        type: str
+        description:
+          zh: '空间用途或功能说明。例如：办公/机房/会议室/大堂/车库等'
+          en: 'Usage or functional description of the space. Examples: office/server_room/meeting_room/lobby/garage, etc.'
+        required: false
+  relations:
+    description:
+      zh: '空间之间的层级、位置与相邻关系。'
+      en: 'Hierarchy, location and adjacency relationships between spaces.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '源空间，必须对应已提取实体的名称。'
+          en: 'Source space, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '目标空间，必须对应已提取实体的名称。'
+          en: 'Target space, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：包含/属于/位于/相邻/服务等'
+          en: 'Relation type: contains/is_part_of/located_in/adjacent_to/serves, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '关系补充说明；无额外信息时可留空。'
+          en: 'Supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位楼宇空间建模专家，负责从文本中准确提取园区、楼宇、楼层、房间、区域之间的空间层级与位置关系。'
+    en: 'You are a building space modeling expert responsible for accurately extracting the spatial hierarchy and location relationships among campus, buildings, storeys, rooms and zones from the text.'
+  rules_for_entities:
+    zh:
+      - '提取空间名称或编号作为实体。'
+      - '空间类型应准确分类到园区/楼宇/楼层/房间/区域等层级。'
+      - '同一空间在全文中保持命名一致。'
+    en:
+      - 'Extract space names or identifiers as entities.'
+      - 'Classify the space type accurately into campus/building/storey/room/zone, etc.'
+      - 'Maintain consistent naming for the same space throughout the text.'
+  rules_for_relations:
+    zh:
+      - '优先提取明确的层级包含关系（园区→楼宇→楼层→房间）。'
+      - '仅提取文本中明确表达的空间关系。'
+    en:
+      - 'Prioritize explicit hierarchical containment relationships (campus -> building -> storey -> room).'
+      - 'Only extract spatial relationships explicitly expressed in the text.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}'
+  relation_members:
+    source: source
+    target: target
+
+display:
+  entity_label: '{name}'
+  relation_label: '{type}'

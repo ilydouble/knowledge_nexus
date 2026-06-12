@@ -1,0 +1,100 @@
+language: [zh, en]
+
+name: equipment_system
+type: graph
+tags: [campus, building, equipment, hvac, system, brick]
+
+description:
+  zh: '设备系统图模板 - 从机电系统说明、暖通/给排水/电气图纸或运维手册中提取楼宇设备之间的供给、组成与控制关系（对齐 Brick 设备拓扑模型）。'
+  en: 'Equipment System Graph Template - Extract feed, composition and control relationships among building equipment from MEP system descriptions, HVAC/plumbing/electrical drawings or O&M manuals (aligned with the Brick equipment topology model).'
+
+output:
+  description:
+    zh: '楼宇机电设备之间的供给、组成与控制关系网络。'
+    en: 'Feed, composition and control relationship network among building MEP equipment.'
+  entities:
+    description:
+      zh: '设备实体节点。'
+      en: 'Equipment entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '设备名称或位号，使用文本中最稳定、最清晰的称呼。'
+          en: 'Equipment name or tag, using the most stable and clear designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '设备类型。例如：空调机组/变风量末端/冷水机组/锅炉/水泵/风机/盘管/风阀/电表/换热器/冷却塔/末端装置等'
+          en: 'Equipment type. Examples: air_handling_unit/vav_box/chiller/boiler/pump/fan/coil/damper/meter/heat_exchanger/cooling_tower/terminal_unit, etc.'
+        required: true
+      - name: system
+        type: str
+        description:
+          zh: '所属系统。例如：暖通系统/给排水系统/电气系统/照明系统/消防系统等'
+          en: 'Parent system. Examples: hvac_system/plumbing_system/electrical_system/lighting_system/fire_protection_system, etc.'
+        required: false
+  relations:
+    description:
+      zh: '设备之间的供给、组成与控制关系。'
+      en: 'Feed, composition and control relationships between equipment.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '源设备，必须对应已提取实体的名称。'
+          en: 'Source equipment, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '目标设备，必须对应已提取实体的名称。'
+          en: 'Target equipment, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：供给/被供给/包含部件/属于/服务/控制/被控制等'
+          en: 'Relation type: feeds/is_fed_by/has_part/is_part_of/serves/controls/is_controlled_by, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '关系补充说明；无额外信息时可留空。'
+          en: 'Supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位楼宇机电系统工程师，负责从文本中准确提取设备之间的供给、组成与控制拓扑关系。'
+    en: 'You are a building MEP systems engineer responsible for accurately extracting feed, composition and control topology relationships among equipment from the text.'
+  rules_for_entities:
+    zh:
+      - '提取设备名称或位号作为实体。'
+      - '设备类型应准确分类。'
+      - '同一设备在全文中保持命名一致。'
+    en:
+      - 'Extract equipment names or tags as entities.'
+      - 'Classify equipment types accurately.'
+      - 'Maintain consistent naming for the same equipment throughout the text.'
+  rules_for_relations:
+    zh:
+      - '“供给”表示介质（空气/水/电）从源设备流向目标设备。'
+      - '“包含部件”表示设备由子部件组成（如空调机组包含送风机）。'
+      - '仅提取文本中明确表达的设备关系。'
+    en:
+      - 'feeds indicates media (air/water/electricity) flows from the source to the target equipment.'
+      - 'has_part indicates an equipment is composed of sub-components (e.g., an AHU has a supply fan).'
+      - 'Only extract equipment relationships explicitly expressed in the text.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}'
+  relation_members:
+    source: source
+    target: target
+
+display:
+  entity_label: '{name}'
+  relation_label: '{type}'

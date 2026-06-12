@@ -1,0 +1,96 @@
+language: [zh, en]
+
+name: security_incident
+type: graph
+tags: [campus, security, incident, people, vehicle]
+
+description:
+  zh: '安全事件图模板 - 从园区安保事件报告、警情记录或处置工单中提取安全事件及其涉及的人员、车辆、地点、处置人员与告警之间的关系。'
+  en: 'Security Incident Graph Template - Extract security incidents and their relationships with involved people, vehicles, locations, responders and alarms from campus security incident reports, alert records or disposition work orders.'
+
+output:
+  description:
+    zh: '安全事件与人员、车辆、地点、处置之间的关系网络。'
+    en: 'Relationship network among security incidents and people, vehicles, locations and dispositions.'
+  entities:
+    description:
+      zh: '安全事件、人员、车辆、地点与处置实体节点。'
+      en: 'Security incident, person, vehicle, location and disposition entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '实体名称（事件标识/人名/车牌/地点/处置人），使用文本中最稳定、最清晰的称呼。'
+          en: 'Entity name (incident id/person name/plate/location/responder), using the most stable and clear designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '实体类型。例如：安全事件/人员/车辆/地点/处置人员/告警/证据/严重等级等'
+          en: 'Entity type. Examples: security_incident/person/vehicle/location/responder/alarm/evidence/severity, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '对实体的简要说明；无额外信息时可留空。'
+          en: 'Brief description of the entity; can be left empty when no additional information is available.'
+        required: false
+  relations:
+    description:
+      zh: '安全事件与相关实体之间的涉及、发生地、处置与告警关系。'
+      en: 'Involvement, location, disposition and alarm relationships between security incidents and related entities.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '源实体，必须对应已提取实体的名称。'
+          en: 'Source entity, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '目标实体，必须对应已提取实体的名称。'
+          en: 'Target entity, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：涉及/发生于/由…处置/触发告警/由…上报/相关等'
+          en: 'Relation type: involves/occurred_at/responded_by/triggered_alarm/reported_by/related_to, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '关系补充说明；无额外信息时可留空。'
+          en: 'Supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位园区安保事件分析专家，负责从事件报告中准确提取安全事件及其涉及的人员、车辆、地点与处置关系。'
+    en: 'You are a campus security incident analysis expert responsible for accurately extracting security incidents and their relationships with involved people, vehicles, locations and dispositions from incident reports.'
+  rules_for_entities:
+    zh:
+      - '提取安全事件作为核心实体，并提取涉及的人员、车辆、地点。'
+      - '车辆以车牌号作为稳定标识；同一实体在全文中保持命名一致。'
+    en:
+      - 'Extract the security incident as the core entity, and extract involved people, vehicles and locations.'
+      - 'Use the plate number as the stable identifier for vehicles; maintain consistent naming for the same entity throughout the text.'
+  rules_for_relations:
+    zh:
+      - '“涉及”表示事件涉及某人员或车辆。'
+      - '仅提取文本中明确表达的事件关系。'
+    en:
+      - 'involves indicates the incident involves a person or vehicle.'
+      - 'Only extract incident relationships explicitly expressed in the text.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}'
+  relation_members:
+    source: source
+    target: target
+
+display:
+  entity_label: '{name}'
+  relation_label: '{type}'

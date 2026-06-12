@@ -1,0 +1,100 @@
+language: [zh, en]
+
+name: access_control_topology
+type: graph
+tags: [campus, security, access_control, infrastructure, realestatecore]
+
+description:
+  zh: '门禁安防拓扑图模板 - 从园区安防方案、点位布置或设备清单中提取闸口、道闸、读卡器、摄像机、对讲、安防区域等设施之间的控制、覆盖与位置关系（对齐 RealEstateCore 安防资产）。'
+  en: 'Access Control Topology Graph Template - Extract control, coverage and location relationships among gates, barriers, card readers, cameras, intercoms and security zones from campus security designs, device layouts or equipment lists (aligned with RealEstateCore security assets).'
+
+output:
+  description:
+    zh: '园区门禁安防设施之间的控制、覆盖与位置关系网络。'
+    en: 'Control, coverage and location relationship network among campus access-control and security facilities.'
+  entities:
+    description:
+      zh: '门禁、安防设备与安防区域实体节点。'
+      en: 'Access-control, security device and security-zone entity nodes.'
+    fields:
+      - name: name
+        type: str
+        description:
+          zh: '设施名称或编号，使用文本中最稳定、最清晰的称呼。'
+          en: 'Facility name or identifier, using the most stable and clear designation in the text.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '设施类型。例如：闸口/闸机/道闸/检查站/读卡器/摄像机/对讲/出门按钮/安防区域/停车场/岗亭等'
+          en: 'Facility type. Examples: gate/turnstile/barrier/checkpoint/access_reader/surveillance_camera/intercom/request_to_exit/security_zone/parking_lot/guard_post, etc.'
+        required: true
+      - name: location
+        type: str
+        description:
+          zh: '安装位置（楼宇/出入口/区域）；无信息时可留空。'
+          en: 'Installation location (building/entrance/area); can be left empty when no information is available.'
+        required: false
+  relations:
+    description:
+      zh: '设施之间的控制、覆盖、监控与位置关系。'
+      en: 'Control, coverage, monitoring and location relationships among facilities.'
+    fields:
+      - name: source
+        type: str
+        description:
+          zh: '源设施，必须对应已提取实体的名称。'
+          en: 'Source facility, must correspond to the name of an extracted entity.'
+        required: true
+      - name: target
+        type: str
+        description:
+          zh: '目标设施，必须对应已提取实体的名称。'
+          en: 'Target facility, must correspond to the name of an extracted entity.'
+        required: true
+      - name: type
+        type: str
+        description:
+          zh: '关系类型：控制/位于/覆盖区域/连接/监控/守护等'
+          en: 'Relation type: controls/located_in/covers_zone/connects_to/monitors/secures, etc.'
+        required: true
+      - name: description
+        type: str
+        description:
+          zh: '关系补充说明；无额外信息时可留空。'
+          en: 'Supplementary explanation for the relation; can be left empty when no additional information is available.'
+        required: false
+
+guideline:
+  target:
+    zh: '你是一位园区安防系统工程师，负责从安防方案中准确提取门禁安防设施之间的控制、覆盖与位置拓扑关系。'
+    en: 'You are a campus security systems engineer responsible for accurately extracting control, coverage and location topology relationships among access-control and security facilities from security designs.'
+  rules_for_entities:
+    zh:
+      - '提取门禁与安防设施名称作为实体。'
+      - '设施类型应准确分类。'
+      - '同一设施在全文中保持命名一致。'
+    en:
+      - 'Extract access-control and security facility names as entities.'
+      - 'Classify facility types accurately.'
+      - 'Maintain consistent naming for the same facility throughout the text.'
+  rules_for_relations:
+    zh:
+      - '“控制”表示读卡器/控制器控制某闸口或道闸。'
+      - '“覆盖区域”表示摄像机或读卡器覆盖某安防区域。'
+      - '仅提取文本中明确表达的设施关系。'
+    en:
+      - 'controls indicates a reader/controller controls a gate or barrier.'
+      - 'covers_zone indicates a camera or reader covers a security zone.'
+      - 'Only extract facility relationships explicitly expressed in the text.'
+
+identifiers:
+  entity_id: name
+  relation_id: '{source}|{type}|{target}'
+  relation_members:
+    source: source
+    target: target
+
+display:
+  entity_label: '{name}'
+  relation_label: '{type}'
