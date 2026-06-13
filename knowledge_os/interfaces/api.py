@@ -256,6 +256,27 @@ def register_knowledge_os_api(
         evidence = EvidenceService(store, repository=repository).purge(uri, mode="knowledge")
         return {"deleted_uri": uri, "neo4j": "nodes and edges removed", "evidence": evidence}
 
+    @app.delete("/api/admin/graph")
+    def admin_clear_graph(
+        store: KnowledgeOSStore = Depends(get_store),
+    ) -> dict[str, Any]:
+        """Hard-delete ALL nodes and edges from the Neo4j knowledge graph and purge
+        all Postgres graph evidence.
+
+        ⚠️  Irreversible — clears the entire graph, not just one document.
+        """
+        if neo4j_store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Neo4j is not available; cannot clear graph.",
+            )
+        try:
+            neo4j_counts = neo4j_store.clear_all()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        evidence = EvidenceService(store, repository=repository).purge_all()
+        return {"neo4j": neo4j_counts, "evidence": evidence}
+
     # ── Phase 5: governance endpoints ─────────────────────────────────────────
 
     @app.get("/api/admin/dashboard")

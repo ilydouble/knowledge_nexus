@@ -372,6 +372,19 @@ class EvidenceService:
                 marked += 1
         return {"uri": uri, "status": "source_deleted", "evidence_marked_stale": marked}
 
+    def purge_all(self) -> dict[str, Any]:
+        """Purge graph evidence for every source URI stored in Postgres."""
+        all_evidence = self.store.list_graph_evidence()
+        source_uris = {e.source_uri for e in all_evidence}
+        total_purged = 0
+        for uri in source_uris:
+            result = self.purge(uri, mode="knowledge")
+            total_purged += result["evidence_marked_purged"]
+        return {
+            "source_uris_purged": len(source_uris),
+            "evidence_marked_purged": total_purged,
+        }
+
     def purge(self, uri: str, mode: str = "knowledge") -> dict[str, Any]:
         self.store.mark_document_status(uri, "purged")
         marked = 0

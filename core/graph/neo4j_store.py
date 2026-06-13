@@ -114,6 +114,20 @@ class Neo4jGraphStore:
                 """
             )
 
+    def clear_all(self) -> dict[str, int]:
+        """Delete every NexusFile node and every NEXUS_RELATION edge from the graph.
+
+        ⚠️  Irreversible — wipes the entire Neo4j knowledge graph for this instance.
+        Returns counts of deleted nodes and relationships.
+        """
+        with self.driver.session() as session:
+            result = session.run("MATCH (n:NexusFile) DETACH DELETE n")
+            summary = result.consume()
+        return {
+            "nodes_deleted": summary.counters.nodes_deleted,
+            "relationships_deleted": summary.counters.relationships_deleted,
+        }
+
     def delete_by_uri_for_tests(self, uri: str) -> None:
         with self.driver.session() as session:
             session.run("MATCH (n:NexusFile {uri: $uri}) DETACH DELETE n", uri=uri)

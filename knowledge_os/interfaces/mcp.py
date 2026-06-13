@@ -191,6 +191,30 @@ def register_knowledge_os_tools(
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     @mcp.tool()
+    def clear_all_graph_nodes() -> str:
+        """Hard-delete ALL nodes and edges from the Neo4j knowledge graph and purge
+        all Postgres graph evidence records.
+
+        ⚠️  Irreversible — this wipes the entire graph, not just one document.
+        Only call this when the user explicitly asks to clear the whole graph.
+        """
+        if neo4j_store is None:
+            return json.dumps(
+                {"error": "Neo4j is not available; cannot clear graph."},
+                ensure_ascii=False,
+            )
+        try:
+            neo4j_counts = neo4j_store.clear_all()
+            evidence_result = EvidenceService(store, repository=get_repository()).purge_all()
+            return json.dumps(
+                {"neo4j": neo4j_counts, "evidence": evidence_result},
+                ensure_ascii=False,
+                indent=2,
+            )
+        except Exception as exc:
+            return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+    @mcp.tool()
     def delete_graph_nodes(uri: str) -> str:
         """Physically delete all Neo4j nodes and edges contributed by a source document.
 

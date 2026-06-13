@@ -189,6 +189,10 @@ def cmd_delete_graph(a):
     _out(_req("DELETE", f"/api/admin/documents/{_enc(a.uri)}/graph"))
 
 
+def cmd_clear_graph(a):
+    _out(_req("DELETE", "/api/admin/graph"))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kn", description="Knowledge OS workflow CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -242,6 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     dg = sub.add_parser("delete-graph", help="HARD-delete Neo4j nodes/edges for a source uri")
     dg.add_argument("uri"); dg.set_defaults(fn=cmd_delete_graph)
+
+    sub.add_parser("clear-graph", help="HARD-delete ALL Neo4j nodes/edges and purge all evidence (irreversible)").set_defaults(fn=cmd_clear_graph)
     return p
 
 
