@@ -1,76 +1,94 @@
 ---
 name: cloudreve-io
-description: Use to manage the Cloudreve file source feeding Knowledge OS — check whether the drive is authorized, trigger a full file scan so new documents are discovered, and poll scan progress. Trigger when the user uploads files to the drive, asks why a file is not showing up, wants to (re)sync the drive, or needs to confirm Cloudreve is connected before extraction. This skill only gets files discovered; it never reads file content or touches the knowledge graph (use knowledge-os for that).
+description: Use to manage the Cloudreve file source feeding Knowledge OS — check authorization, configure OAuth credentials, list/browse files, get file metadata, download a file to a local temp path, trigger a full drive scan, and poll scan progress. Trigger when the user uploads files, asks why a file is missing, wants to browse the drive, needs a local copy of a file for analysis, or wants to configure/check the Cloudreve connection. This skill never writes to the knowledge graph (use knowledge-os for extract → review → commit).
 ---
 
 # Cloudreve IO
 
-Manage the **file-source** side of the Knowledge OS pipeline. This skill is the
-"librarian": it makes sure the drive is connected and its files are discovered,
-then hands off to other skills (`analyzing-data` to analyse, `knowledge-os` to
-extract into the graph).
+Manage the **file-source** side of the Knowledge OS pipeline. This skill is
+the "librarian": it authenticates to the drive, lets you browse and fetch files,
+and hands local file paths or `cloudreve://` URIs off to `analyzing-data` (for
+data analysis) or `knowledge-os` (for graph extraction).
 
 ## Prerequisite
 
-The Knowledge OS backend must be running and reachable:
+The Knowledge OS backend must be running:
 
 ```bash
 ./start.sh            # from the knowledge_nexus repo root
 ```
 
-`cloudreve` talks to `http://localhost:8000` by default. Point it elsewhere
-with the `KN_API_URL` environment variable. Run it from this skill directory
-(the script sits next to this file), or call it by full path:
+`cloudreve` talks to `http://localhost:8000` by default.
+Override with `KN_API_URL`. Run from this skill directory or call by full path:
 
 ```bash
-python3 cloudreve status      # is the drive authorized?
+python3 cloudreve status      # quick auth check
 ```
-
-If a command errors with "Cannot reach …", the backend is not running — tell
-the user to run `./start.sh` first.
 
 ## Core workflow
 
-1. **Check authorization** before anything else:
-   `python3 cloudreve status`
-   - `{"authorized": true}` → the drive is connected, proceed.
-   - `{"authorized": false}` → OAuth is not set up. Authorization is a
-     browser flow done in the Web console (**Cloudreve tab** → fill Base URL +
-     Client ID/Secret → save → click authorize). Inspect the current config
-     with `python3 cloudreve config`. Do **not** attempt to paste secrets on
-     the command line.
+### First time — configure OAuth
 
-2. **Trigger a scan** so newly uploaded files get discovered:
-   `python3 cloudreve scan`
-   Returns immediately; the scan runs in the background.
+```bash
+# Set the secret in the environment, then run configure
+export CLOUDREVE_CLIENT_SECRET=<your-client-secret>
+python3 cloudreve configure \
+    --base-url  http://<your-cloudreve-host>:5212 \
+    --client-id <your-client-id>
+```
 
-3. **Poll progress** until it finishes:
-   `python3 cloudreve scan-status`
-   Reports the last scan result and whether a scan is currently running.
+If the env var is absent and the terminal is interactive, `configure` will
+prompt for the secret with `getpass` (hidden input). Pass `--no-interactive`
+to fail fast in scripts instead. After saving config, complete the OAuth
+authorization through the Web console (Cloudreve tab → click "Authorize").
 
-Once a scan completes, the files are known to the system and their
-`cloudreve://…` URIs can be handed to `knowledge-os` for extraction.
+### Browse the drive
+
+```bash
+python3 cloudreve ls                         # root of the drive
+python3 cloudreve ls cloudreve://my/campus   # a specific folder
+python3 cloudreve info cloudreve://my/campus/access_log.csv
+```
+
+### Download a file for local analysis
+
+```bash
+# Prints the path of the downloaded temp file — pass it to analyzing-data
+python3 cloudreve download cloudreve://my/campus/sensors.csv
+# /tmp/cloudreve_abc123.csv
+
+# Or specify a destination explicitly
+python3 cloudreve download cloudreve://my/campus/sensors.csv --out /tmp/sensors.csv
+```
+
+### Discover new files (full scan)
+
+```bash
+python3 cloudreve scan           # trigger background scan
+python3 cloudreve scan-status    # poll until is_scanning = false
+```
+
+Once scan completes, the files' `cloudreve://` URIs can be used by `knowledge-os`.
 
 ## Command reference
 
 | Command | Purpose |
 |---|---|
-| `status` | Cloudreve OAuth authorization status |
-| `config` | show OAuth config (base url, redirect uri, scope) |
+| `status` | OAuth authorization status |
+| `config` | show current OAuth config (base url, redirect uri, scope) |
+| `configure [--base-url] [--client-id] [--redirect-uri] [--scope]` | save OAuth config (secret via env `CLOUDREVE_CLIENT_SECRET` or prompt) |
+| `ls [URI]` | list files/dirs at URI (default: `cloudreve://my`) |
+| `info <URI>` | metadata for a single file or directory |
+| `download <URI> [--out PATH]` | download file; prints local path |
 | `scan` | trigger a full recursive scan (background task) |
 | `scan-status` | last scan result / progress + `is_scanning` flag |
 
-## Boundaries
-
-- This skill **discovers** files; it does not read their content, analyse data,
-  or write to the graph. For analysis use `analyzing-data`; for
-  extract → review → commit → query use `knowledge-os`.
-- Browsing/searching individual files is **not yet exposed** over the API
-  (only a full scan is). If the user needs file-level listing/search, that
-  requires a new backend endpoint — surface this as a gap rather than guessing.
-
 ## Safety rules
 
-- Never put OAuth client secrets or tokens into command arguments. Configure
-  them only through the Web console's Cloudreve tab, which writes them to the
-  server-side token store.
+- **Never pass the client secret as a command-line argument.** Use the
+  `CLOUDREVE_CLIENT_SECRET` environment variable or the interactive prompt.
+  This prevents the secret from appearing in `ps aux` or shell history.
+- `download` writes to a temp file by default; the path is printed to stdout
+  so downstream scripts can capture it with `$(python3 cloudreve download ...)`.
+- This skill does not write to the graph. Any local file it downloads is a
+  read-only working copy; the canonical source remains Cloudreve.

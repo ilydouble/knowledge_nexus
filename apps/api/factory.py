@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import mimetypes
+import os
+
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 from pydantic import BaseModel
 
@@ -304,5 +307,48 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
 
         background_tasks.add_task(scanner.scan, delete_fn=_scan_delete_fn)
         return {"status": "started"}
+
+    # ------------------------------------------------------------------
+    # Cloudreve file-browse & download endpoints
+    # ------------------------------------------------------------------
+
+    def _get_client() -> CloudreveClient:
+        return app.state.scanner.client
+
+    @app.get("/api/cloudreve/files")
+    async def cloudreve_list_files(uri: str = "cloudreve://my") -> dict[str, Any]:
+        """List files/directories at *uri* (one level, non-recursive)."""
+        client = _get_client()
+        try:
+            data = await client.list_files(uri)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"uri": uri, "data": data}
+
+    @app.get("/api/cloudreve/files/info")
+    async def cloudreve_file_info(uri: str) -> dict[str, Any]:
+        """Return metadata for a single file or directory *uri*."""
+        client = _get_client()
+        try:
+            data = await client.get_metadata(uri)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"uri": uri, "data": data}
+
+    @app.get("/api/cloudreve/files/download")
+    async def cloudreve_download_file(uri: str) -> Response:
+        """Proxy-download a file from Cloudreve and return its raw bytes."""
+        client = _get_client()
+        try:
+            content = await client.get_file_content(uri)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        filename = os.path.basename(uri.rstrip("/")) or "download"
+        media_type, _ = mimetypes.guess_type(filename)
+        return Response(
+            content=content,
+            media_type=media_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     return app

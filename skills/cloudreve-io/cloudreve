@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 """cloudreve-io CLI — thin HTTP client for Knowledge OS drive operations.
 
-Covers the *file-source* side of the pipeline: check Cloudreve authorization,
-trigger a full scan, and poll scan progress. It talks to the same backend as
-the knowledge-os skill (started via ./start.sh) but stays focused on getting
-files discovered — it never touches the knowledge graph.
+Manages the *file-source* side of the pipeline: authorization, file listing,
+metadata, download to a local temp file, full scan, and OAuth config.
 
-Stdlib only: needs just python3 and the API on http://localhost:8000.
-Override the base URL with the KN_API_URL environment variable.
+Stdlib only. Set KN_API_URL to override the default http://localhost:8000.
+
+configure safety note
+---------------------
+Provide --client-secret via the env var CLOUDREVE_CLIENT_SECRET (never as a
+command-line argument). If the env var is absent, configure prompts for it
+interactively so it never appears in the process argument list or shell history.
 """
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 
 BASE = os.environ.get("KN_API_URL", "http://localhost:8000").rstrip("/")
 
+
+# ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 def _req(method: str, path: str, body=None, query=None):
     url = BASE + path
@@ -41,9 +48,27 @@ def _req(method: str, path: str, body=None, query=None):
         sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc.reason})")
 
 
+def _req_bytes(path: str, query=None) -> tuple[bytes, dict[str, str]]:
+    """GET a binary response; returns (body_bytes, headers_dict)."""
+    url = BASE + path
+    if query:
+        q = {k: v for k, v in query.items() if v not in (None, "")}
+        if q:
+            url += "?" + urllib.parse.urlencode(q)
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp:
+            return resp.read(), dict(resp.headers)
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"HTTP {exc.code}: {exc.read().decode()}")
+    except urllib.error.URLError as exc:
+        sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc.reason})")
+
+
 def _out(obj) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
 
+
+# ── Commands ──────────────────────────────────────────────────────────────────
 
 def cmd_status(a):
     _out(_req("GET", "/api/auth/cloudreve/status"))
@@ -51,6 +76,55 @@ def cmd_status(a):
 
 def cmd_config(a):
     _out(_req("GET", "/api/auth/cloudreve/config"))
+
+
+def cmd_configure(a):
+    """Save OAuth config. Client-secret comes from env or interactive prompt."""
+    secret = os.environ.get("CLOUDREVE_CLIENT_SECRET")
+    if not secret:
+        if a.no_interactive:
+            sys.exit(
+                "CLOUDREVE_CLIENT_SECRET env var is required in non-interactive mode.\n"
+                "  export CLOUDREVE_CLIENT_SECRET=<your-secret>"
+            )
+        secret = getpass.getpass("Cloudreve client secret: ")
+    payload: dict[str, str] = {"client_secret": secret}
+    if a.base_url:
+        payload["cloudreve_base_url"] = a.base_url
+    if a.client_id:
+        payload["client_id"] = a.client_id
+    if a.redirect_uri:
+        payload["redirect_uri"] = a.redirect_uri
+    if a.scope:
+        payload["scope"] = a.scope
+    _out(_req("POST", "/api/auth/cloudreve/config", body=payload))
+
+
+def cmd_ls(a):
+    uri = a.uri or "cloudreve://my"
+    _out(_req("GET", "/api/cloudreve/files", query={"uri": uri}))
+
+
+def cmd_info(a):
+    _out(_req("GET", "/api/cloudreve/files/info", query={"uri": a.uri}))
+
+
+def cmd_download(a):
+    content, headers = _req_bytes("/api/cloudreve/files/download", query={"uri": a.uri})
+    if a.out:
+        dest = a.out
+    else:
+        # derive extension from the Content-Disposition or the URI
+        cd = headers.get("Content-Disposition", "")
+        fname = a.uri.rstrip("/").rsplit("/", 1)[-1] if "/" in a.uri else "download"
+        if 'filename="' in cd:
+            fname = cd.split('filename="')[1].rstrip('"')
+        ext = os.path.splitext(fname)[1] or ""
+        fd, dest = tempfile.mkstemp(suffix=ext, prefix="cloudreve_")
+        os.close(fd)
+    with open(dest, "wb") as f:
+        f.write(content)
+    print(dest)   # print the path so the next step can consume it
 
 
 def cmd_scan(a):
@@ -61,12 +135,36 @@ def cmd_scan_status(a):
     _out(_req("GET", "/api/cloudreve/scan/status"))
 
 
+# ── Parser ────────────────────────────────────────────────────────────────────
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="cloudreve", description="Cloudreve drive-IO CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("status", help="Cloudreve OAuth authorization status").set_defaults(fn=cmd_status)
+    sub.add_parser("status", help="OAuth authorization status").set_defaults(fn=cmd_status)
     sub.add_parser("config", help="show OAuth config (base url, redirect, scope)").set_defaults(fn=cmd_config)
+
+    cfg = sub.add_parser("configure", help="save OAuth config (secret via env or prompt)")
+    cfg.add_argument("--base-url", dest="base_url", help="Cloudreve base URL")
+    cfg.add_argument("--client-id", dest="client_id")
+    cfg.add_argument("--redirect-uri", dest="redirect_uri")
+    cfg.add_argument("--scope", default="openid profile offline_access Files.Read")
+    cfg.add_argument("--no-interactive", dest="no_interactive", action="store_true",
+                     help="fail if CLOUDREVE_CLIENT_SECRET env var is not set")
+    cfg.set_defaults(fn=cmd_configure)
+
+    ls = sub.add_parser("ls", help="list files/dirs at a Cloudreve URI")
+    ls.add_argument("uri", nargs="?", default=None, help="cloudreve://… URI (default: cloudreve://my)")
+    ls.set_defaults(fn=cmd_ls)
+
+    inf = sub.add_parser("info", help="file/directory metadata")
+    inf.add_argument("uri"); inf.set_defaults(fn=cmd_info)
+
+    dl = sub.add_parser("download", help="download a file to a local path (prints the path)")
+    dl.add_argument("uri")
+    dl.add_argument("--out", default=None, help="destination file path (default: auto temp file)")
+    dl.set_defaults(fn=cmd_download)
+
     sub.add_parser("scan", help="trigger a full recursive Cloudreve scan").set_defaults(fn=cmd_scan)
     sub.add_parser("scan-status", help="last scan result / progress").set_defaults(fn=cmd_scan_status)
     return p
