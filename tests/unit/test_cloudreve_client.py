@@ -65,7 +65,7 @@ def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
         seen["headers"] = headers
         return FakeResponse()
 
-    monkeypatch.setattr("nexus.cloudreve.client.requests.get", fake_get)
+    monkeypatch.setattr("core.cloudreve.client.requests.get", fake_get)
 
     client = CloudreveClient(base_url="http://localhost:5212", token="U_qfDZdYiMTYn15zm9NHSON9CHf6LM49ark_KQgptA0")
 
@@ -82,7 +82,7 @@ def test_iter_file_events_surfaces_actionable_hint_on_bad_gateway(monkeypatch):
     assert "/session/authn" in str(exc.value)
 
 
-def test_get_file_content_sync_refreshes_expired_access_token_and_retries(monkeypatch):
+def test_get_file_content_sync_refreshes_expired_access_token_and_retries(monkeypatch, tmp_path):
     """Verify the two-step Cloudreve Pro v4 download flow with token refresh.
 
     Flow:
@@ -134,8 +134,12 @@ def test_get_file_content_sync_refreshes_expired_access_token_and_retries(monkey
         seen["get_calls"].append(url)
         return FakeDownloadResponse()
 
-    monkeypatch.setattr("nexus.cloudreve.client.requests.post", fake_post)
-    monkeypatch.setattr("nexus.cloudreve.client.requests.get", fake_get)
+    # Isolate the token store so the refresh never touches the real credentials file.
+    monkeypatch.setenv("CLOUDREVE_TOKEN_STORE_PATH", str(tmp_path / "tokens.json"))
+    monkeypatch.setattr("core.cloudreve.client.requests.post", fake_post)
+    monkeypatch.setattr("core.cloudreve.client.requests.get", fake_get)
+    # The token refresh POST is issued from core.cloudreve.oauth, not the client.
+    monkeypatch.setattr("core.cloudreve.oauth.requests.post", fake_post)
 
     client = CloudreveClient(base_url="http://localhost:5212", token="old-access", refresh_token="old-refresh")
     content = client.get_file_content_sync("cloudreve://my/demo.md")
@@ -154,7 +158,7 @@ def test_get_file_content_sync_refreshes_expired_access_token_and_retries(monkey
     assert client.refresh_token == "new-refresh"
 
 
-def test_iter_file_events_refreshes_expired_access_token_before_streaming(monkeypatch):
+def test_iter_file_events_refreshes_expired_access_token_before_streaming(monkeypatch, tmp_path):
     seen = {"get_headers": []}
 
     class FakeStreamResponse:
@@ -187,8 +191,14 @@ def test_iter_file_events_refreshes_expired_access_token_before_streaming(monkey
         seen["get_headers"].append(headers)
         return responses.pop(0)
 
-    monkeypatch.setattr("nexus.cloudreve.client.requests.get", fake_get)
-    monkeypatch.setattr("nexus.cloudreve.client.requests.post", lambda *args, **kwargs: FakeRefreshResponse())
+    def fake_refresh_post(*args, **kwargs):
+        return FakeRefreshResponse()
+
+    # Isolate the token store so the refresh never touches the real credentials file.
+    monkeypatch.setenv("CLOUDREVE_TOKEN_STORE_PATH", str(tmp_path / "tokens.json"))
+    monkeypatch.setattr("core.cloudreve.client.requests.get", fake_get)
+    # The token refresh POST is issued from core.cloudreve.oauth, not the client.
+    monkeypatch.setattr("core.cloudreve.oauth.requests.post", fake_refresh_post)
 
     client = CloudreveClient(base_url="http://localhost:5212", token="expired-access", refresh_token="refresh-token")
 

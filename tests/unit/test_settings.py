@@ -24,7 +24,10 @@ def test_settings_missing_optional_ai_key_does_not_crash(monkeypatch, tmp_path):
     assert settings.zhipu_api_key is None
 
 
-def test_settings_defaults_to_glm47_for_llm_extraction(monkeypatch):
+def test_settings_defaults_to_glm47_for_llm_extraction(monkeypatch, tmp_path):
+    # chdir to an empty dir so the repo's .env (which sets LLM_MODEL) is ignored
+    # and we exercise the dataclass default.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
 
