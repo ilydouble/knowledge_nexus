@@ -67,10 +67,9 @@ Hard delete — **irreversible**, physically removes graph data:
   and any orphaned entity nodes from Neo4j, then purge its Postgres evidence so
   both stores stay in sync. Only run after the user explicitly confirms the URI.
 
-Cloudreve sync:
-
-- `python3 kn scan` — trigger a full Cloudreve scan (background task).
-- `python3 kn scan-status` — last scan result / progress.
+> File-source operations (drive authorization, scanning Cloudreve so new files
+> are discovered) live in the separate **cloudreve-io** skill. Use that to get
+> a `cloudreve://…` URI, then bring it here to extract.
 
 ## Command reference
 
@@ -90,7 +89,6 @@ Cloudreve sync:
 | `stale` | stale/purged evidence report |
 | `mark-deleted <uri>` / `purge <uri> [--mode M]` | source governance (soft) |
 | `delete-graph <uri>` | hard-delete Neo4j nodes/edges + purge evidence |
-| `scan` / `scan-status` | Cloudreve full scan |
 
 ## Safety rules
 

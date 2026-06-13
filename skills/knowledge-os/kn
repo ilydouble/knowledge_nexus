@@ -123,14 +123,6 @@ def cmd_delete_graph(a):
     _out(_req("DELETE", f"/api/admin/documents/{_enc(a.uri)}/graph"))
 
 
-def cmd_scan(a):
-    _out(_req("POST", "/api/cloudreve/scan"))
-
-
-def cmd_scan_status(a):
-    _out(_req("GET", "/api/cloudreve/scan/status"))
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kn", description="Knowledge OS workflow CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -177,9 +169,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     dg = sub.add_parser("delete-graph", help="HARD-delete Neo4j nodes/edges for a source uri")
     dg.add_argument("uri"); dg.set_defaults(fn=cmd_delete_graph)
-
-    sub.add_parser("scan", help="trigger a Cloudreve scan").set_defaults(fn=cmd_scan)
-    sub.add_parser("scan-status", help="last scan result").set_defaults(fn=cmd_scan_status)
     return p
 
 

@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""cloudreve-io CLI — thin HTTP client for Knowledge OS drive operations.
+
+Covers the *file-source* side of the pipeline: check Cloudreve authorization,
+trigger a full scan, and poll scan progress. It talks to the same backend as
+the knowledge-os skill (started via ./start.sh) but stays focused on getting
+files discovered — it never touches the knowledge graph.
+
+Stdlib only: needs just python3 and the API on http://localhost:8000.
+Override the base URL with the KN_API_URL environment variable.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+BASE = os.environ.get("KN_API_URL", "http://localhost:8000").rstrip("/")
+
+
+def _req(method: str, path: str, body=None, query=None):
+    url = BASE + path
+    if query:
+        q = {k: v for k, v in query.items() if v not in (None, "")}
+        if q:
+            url += "?" + urllib.parse.urlencode(q)
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            return json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"HTTP {exc.code}: {exc.read().decode()}")
+    except urllib.error.URLError as exc:
+        sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc.reason})")
+
+
+def _out(obj) -> None:
+    print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def cmd_status(a):
+    _out(_req("GET", "/api/auth/cloudreve/status"))
+
+
+def cmd_config(a):
+    _out(_req("GET", "/api/auth/cloudreve/config"))
+
+
+def cmd_scan(a):
+    _out(_req("POST", "/api/cloudreve/scan"))
+
+
+def cmd_scan_status(a):
+    _out(_req("GET", "/api/cloudreve/scan/status"))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="cloudreve", description="Cloudreve drive-IO CLI")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("status", help="Cloudreve OAuth authorization status").set_defaults(fn=cmd_status)
+    sub.add_parser("config", help="show OAuth config (base url, redirect, scope)").set_defaults(fn=cmd_config)
+    sub.add_parser("scan", help="trigger a full recursive Cloudreve scan").set_defaults(fn=cmd_scan)
+    sub.add_parser("scan-status", help="last scan result / progress").set_defaults(fn=cmd_scan_status)
+    return p
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
