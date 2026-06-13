@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock
 from urllib.parse import quote
 
@@ -5,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apps.api.factory import create_application
+from knowledge_os.application.extraction_pipeline import ExtractionInputError
 from knowledge_os.infrastructure.memory_store import InMemoryKnowledgeOSStore
 from knowledge_os.interfaces.api import register_knowledge_os_api
 from core.repositories.memory import InMemoryRepository
@@ -102,3 +104,46 @@ def test_delete_graph_endpoint_returns_503_when_neo4j_unavailable():
 
     assert response.status_code == 503
     assert "Neo4j" in response.json()["detail"]
+
+
+def make_pipeline_client(pipeline):
+    """Build an app whose extraction pipeline is a caller-supplied mock."""
+    app = FastAPI()
+    store = InMemoryKnowledgeOSStore()
+    register_knowledge_os_api(
+        app,
+        repository=InMemoryRepository(),
+        get_store=lambda: store,
+        get_extraction_pipeline=lambda: pipeline,
+    )
+    return TestClient(app)
+
+
+def test_extract_file_maps_input_error_to_400():
+    """A gate rejection (ExtractionInputError) is a user error → HTTP 400."""
+    pipeline = MagicMock()
+    pipeline.run.side_effect = ExtractionInputError("File skipped by gate: binary/media file")
+    client = make_pipeline_client(pipeline)
+
+    response = client.post(
+        "/api/admin/candidates/extract/file",
+        files={"file": ("photo.jpg", b"binary", "image/jpeg")},
+    )
+
+    assert response.status_code == 400
+    assert "skipped by gate" in response.json()["detail"]
+
+
+def test_extract_file_maps_llm_parse_error_to_500():
+    """An internal JSONDecodeError (a ValueError subclass) must surface as 500."""
+    pipeline = MagicMock()
+    pipeline.run.side_effect = json.JSONDecodeError("Expecting value", "", 0)
+    client = make_pipeline_client(pipeline)
+
+    response = client.post(
+        "/api/admin/candidates/extract/file",
+        files={"file": ("report.md", b"# report", "text/markdown")},
+    )
+
+    assert response.status_code == 500
+    assert "Extraction failed" in response.json()["detail"]

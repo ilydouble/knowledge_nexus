@@ -26,6 +26,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("knowledge_os.extraction_pipeline")
 
 
+class ExtractionInputError(ValueError):
+    """Raised for caller-side input problems (e.g. an unprocessable file).
+
+    Subclasses ``ValueError`` so existing handlers keep working, but lets the
+    API layer distinguish genuine 400 input errors from internal failures such
+    as ``json.JSONDecodeError`` (also a ``ValueError``), which must surface as
+    500.
+    """
+
+
 @dataclass
 class ExtractionPipelineResult:
     batch: CandidateBatch
@@ -91,7 +101,7 @@ class CandidateExtractionPipeline:
         # Gate check — skip binary/media files early
         gate = FileGate().check(filename)
         if not gate.should_process:
-            raise ValueError(f"File skipped by gate: {gate.reason}")
+            raise ExtractionInputError(f"File skipped by gate: {gate.reason}")
 
         # Download — skip when the caller already supplied bytes
         if content is None:

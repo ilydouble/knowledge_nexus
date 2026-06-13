@@ -9,6 +9,7 @@ import os
 from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from knowledge_os.application.extraction_pipeline import ExtractionInputError
 from knowledge_os.application.governance import GovernanceService
 from knowledge_os.application.services import (
     CandidateExtractionService,
@@ -62,10 +63,13 @@ def register_knowledge_os_api(
                     parent_batch_id=request.parent_batch_id,
                     template_ids=request.template_ids or None,
                 )
-            except ValueError as exc:
+            except ExtractionInputError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Extraction failed: {exc}",
+                ) from exc
             service = CandidateExtractionService(store)
             return {
                 **service.describe_batch(result.batch.id),
@@ -130,10 +134,13 @@ def register_knowledge_os_api(
                 requested_by=requested_by,
                 template_ids=tids,
             )
-        except ValueError as exc:
+        except ExtractionInputError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=500,
+                detail=f"Extraction failed: {exc}",
+            ) from exc
 
         service = CandidateExtractionService(store)
         return {
