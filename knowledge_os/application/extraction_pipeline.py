@@ -221,6 +221,7 @@ def build_candidate_extraction_pipeline(
             api_key=api_key,
             model=settings.llm_model,
             base_url=settings.llm_base_url,
+            max_workers=settings.llm_max_workers,
         ),
         store=store,
     )

@@ -53,6 +53,9 @@ class Settings:
     llm_provider: str = "zhipu"
     llm_model: str = "glm-4.7"
     llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    # Number of parallel LLM workers during map-reduce extraction.
+    # Set to 1 to disable concurrency and avoid rate-limit errors.
+    llm_max_workers: int = 1
     # Embedding settings (BigModel embedding-3)
     embedding_model: str = "embedding-3"
     embedding_dimensions: int = 2048
@@ -106,6 +109,7 @@ class Settings:
             llm_provider=env("LLM_PROVIDER", cls.llm_provider) or cls.llm_provider,
             llm_model=env("LLM_MODEL", cls.llm_model) or cls.llm_model,
             llm_base_url=env("LLM_BASE_URL", cls.llm_base_url) or cls.llm_base_url,
+            llm_max_workers=int(env("LLM_MAX_WORKERS", str(cls.llm_max_workers)) or str(cls.llm_max_workers)),
             embedding_model=env("EMBEDDING_MODEL", cls.embedding_model) or cls.embedding_model,
             embedding_dimensions=int(env("EMBEDDING_DIMENSIONS", str(cls.embedding_dimensions)) or str(cls.embedding_dimensions)),
             embedding_base_url=env("EMBEDDING_BASE_URL", cls.embedding_base_url) or cls.embedding_base_url,
