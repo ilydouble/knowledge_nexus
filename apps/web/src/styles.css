@@ -103,8 +103,6 @@ a:hover { color: #1d4ed8; }
 }
 .form-control:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
 textarea.form-control { resize: vertical; }
-.input-row { display: flex; gap: 8px; align-items: flex-end; }
-.input-row .form-group { flex: 1; }
 
 /* ── Alerts ─────────────────────────────────────────────────────── */
 .alert { padding: 10px 14px; border-radius: 8px; font-size: 13px; border: 1px solid; line-height: 1.5; }
@@ -126,53 +124,7 @@ textarea.form-control { resize: vertical; }
 .status-panel .sp-title { font-size: 13px; font-weight: 600; }
 .status-panel .sp-sub { font-size: 11px; opacity: 0.85; margin-top: 2px; }
 
-/* ── Batch list ─────────────────────────────────────────────────── */
-.batch-list { display: flex; flex-direction: column; gap: 6px; }
-.batch-row {
-  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-  padding: 12px 16px; cursor: pointer; transition: all 0.15s;
-  text-align: left; width: 100%;
-  display: flex; align-items: center; gap: 12px;
-}
-.batch-row:hover { border-color: #93c5fd; background: #eff6ff; box-shadow: 0 1px 4px rgba(59,130,246,.12); }
-.batch-info { flex: 1; min-width: 0; }
-.batch-uri { font-size: 13px; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.batch-meta { font-size: 11px; color: #94a3b8; margin-top: 3px; }
-.batch-count { font-size: 12px; color: #94a3b8; white-space: nowrap; }
 
-/* ── Item cards (batch detail) ──────────────────────────────────── */
-.item-list { display: flex; flex-direction: column; gap: 5px; max-height: 420px; overflow-y: auto; padding-right: 2px; }
-.item-list::-webkit-scrollbar { width: 4px; }
-.item-list::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 2px; }
-.item-card {
-  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
-  padding: 9px 12px; display: flex; align-items: flex-start; gap: 10px;
-  transition: border-color 0.1s, background 0.1s;
-}
-.item-card.accepted { border-color: #86efac; background: #f0fdf4; }
-.item-card.rejected { border-color: #fca5a5; background: #fef2f2; opacity: 0.65; }
-.item-body { flex: 1; min-width: 0; }
-.item-title { font-size: 12px; font-weight: 600; color: #1e293b; word-break: break-word; line-height: 1.4; }
-.item-kind { opacity: 0.5; margin-right: 5px; font-weight: 500; }
-.item-arrow { opacity: 0.45; margin: 0 3px; }
-.item-meta { font-size: 11px; color: #64748b; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 8px; }
-.item-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
-
-/* ── Mini stat row (inside batch detail) ────────────────────────── */
-.mini-stat-row { display: flex; gap: 10px; margin-bottom: 16px; }
-.mini-stat {
-  text-align: center; background: #f8fafc; border: 1px solid #e2e8f0;
-  border-radius: 8px; padding: 8px 12px; flex: 1;
-}
-.mini-stat-value { font-size: 20px; font-weight: 800; color: #1e40af; line-height: 1; }
-.mini-stat-label { font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
-
-/* ── Q&A ────────────────────────────────────────────────────────── */
-.qa-answer {
-  font-size: 14px; line-height: 1.75; color: #1e293b;
-  white-space: pre-wrap; background: #f8fafc; border-radius: 8px; padding: 16px;
-}
-.qa-history-q { font-size: 13px; font-weight: 600; color: #1e293b; }
 
 /* ── Graph ──────────────────────────────────────────────────────── */
 .graphTab { display: flex; flex-direction: column; gap: 12px; }
@@ -217,8 +169,6 @@ textarea.form-control { resize: vertical; }
   padding: 1px 5px; font-size: 10px; font-weight: 700; color: #7dd3fc; white-space: nowrap;
 }
 
-/* ── Cloudreve OAuth setup ───────────────────────────────────────── */
-.oauth-fields { display: grid; gap: 12px; }
 
 /* ── Muted / utility ────────────────────────────────────────────── */
 .muted { color: #94a3b8; font-size: 13px; }
