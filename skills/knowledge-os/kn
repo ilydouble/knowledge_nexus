@@ -10,12 +10,14 @@ Override the base URL with the KN_API_URL environment variable.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 BASE = os.environ.get("KN_API_URL", "http://localhost:8000").rstrip("/")
 
@@ -67,6 +69,70 @@ def cmd_extract(a):
     if a.template:
         body["template_ids"] = a.template
     _out(_req("POST", "/api/admin/candidates/extract", body=body))
+
+
+def cmd_extract_file(a):
+    """Upload a local file to /api/admin/candidates/extract/file (multipart)."""
+    path = a.path
+    if not os.path.isfile(path):
+        sys.exit(f"File not found: {path}")
+
+    filename = os.path.basename(path)
+    source_uri = a.source_uri or f"local://{filename}"
+
+    with open(path, "rb") as fh:
+        file_bytes = fh.read()
+
+    # Build multipart/form-data body manually (stdlib only)
+    boundary = uuid.uuid4().hex
+    ctype = f"multipart/form-data; boundary={boundary}"
+
+    def _part(name: str, value: str) -> bytes:
+        return (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode()
+
+    body_parts: list[bytes] = []
+    body_parts.append(
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n".encode()
+        + file_bytes
+        + b"\r\n"
+    )
+    body_parts.append(_part("source_uri", source_uri))
+    body_parts.append(_part("requested_by", a.requested_by))
+    if a.instructions:
+        body_parts.append(_part("instructions", a.instructions))
+    if a.template:
+        body_parts.append(_part("template_ids", json.dumps(a.template)))
+    body_parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(body_parts)
+
+    parsed = urllib.parse.urlparse(BASE)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    conn = conn_cls(host, port, timeout=300)
+    try:
+        conn.request(
+            "POST",
+            "/api/admin/candidates/extract/file",
+            body=body,
+            headers={"Content-Type": ctype, "Content-Length": str(len(body))},
+        )
+        resp = conn.getresponse()
+        raw = resp.read().decode()
+        if resp.status not in (200, 201):
+            sys.exit(f"HTTP {resp.status}: {raw}")
+        _out(json.loads(raw or "{}"))
+    except OSError as exc:
+        sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc})")
+    finally:
+        conn.close()
 
 
 def cmd_accept_all(a):
@@ -140,6 +206,13 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("uri"); e.add_argument("--instructions")
     e.add_argument("--requested-by", dest="requested_by", default="pi-agent")
     e.add_argument("--template", action="append"); e.set_defaults(fn=cmd_extract)
+
+    ef = sub.add_parser("extract-file", help="extract candidates from a local file (no Cloudreve needed)")
+    ef.add_argument("path", help="local file path (text, markdown, CSV, PDF, DOCX, Excel)")
+    ef.add_argument("--source-uri", dest="source_uri", help="provenance URI (default: local://<filename>)")
+    ef.add_argument("--instructions")
+    ef.add_argument("--requested-by", dest="requested_by", default="pi-agent")
+    ef.add_argument("--template", action="append"); ef.set_defaults(fn=cmd_extract_file)
 
     for name, fn in (("accept-all", cmd_accept_all), ("reject-all", cmd_reject_all),
                      ("preview", cmd_preview), ("commit", cmd_commit)):

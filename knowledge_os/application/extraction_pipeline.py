@@ -1,8 +1,9 @@
 """CandidateExtractionPipeline — Phase 2 pipeline.
 
-Downloads a Cloudreve file, parses it, classifies it, runs the LLM
-extractor, and stores the results as a *candidate* batch (never committed
-directly to Neo4j).  Pi-Agent then reviews/edits/commits the candidates.
+Downloads a Cloudreve file (or uses pre-supplied bytes), parses it,
+classifies it, runs the LLM extractor, and stores the results as a
+*candidate* batch (never committed directly to Neo4j).
+Pi-Agent then reviews/edits/commits the candidates.
 """
 
 from __future__ import annotations
@@ -58,14 +59,33 @@ class CandidateExtractionPipeline:
         self,
         uri: str,
         *,
+        content: bytes | None = None,
+        filename: str | None = None,
         instructions: str | None = None,
         requested_by: str = "pi-agent",
         parent_batch_id: str | None = None,
         template_ids: list[str] | None = None,
     ) -> ExtractionPipelineResult:
+        """Run the extraction pipeline.
+
+        Parameters
+        ----------
+        uri:
+            Source URI used for provenance. For Cloudreve files use
+            ``cloudreve://…``. For locally supplied content you may pass any
+            stable identifier such as ``local://my-report.md``.
+        content:
+            Pre-fetched file bytes. When provided the Cloudreve download step
+            is skipped entirely, so *uri* does not need to be a reachable
+            Cloudreve path. This is the entry point for locally generated
+            reports and uploaded files.
+        filename:
+            Override for the filename used during parsing and gate-checks.
+            Defaults to the last path component of *uri*.
+        """
         from core.services.file_gate import FileGate
 
-        filename = uri.split("/")[-1] or "unknown"
+        filename = filename or (uri.split("/")[-1] or "unknown")
         warnings: list[str] = []
 
         # Gate check — skip binary/media files early
@@ -73,9 +93,12 @@ class CandidateExtractionPipeline:
         if not gate.should_process:
             raise ValueError(f"File skipped by gate: {gate.reason}")
 
-        # Download
-        logger.info("Downloading %s", uri)
-        content = self.cloudreve_client.get_file_content_sync(uri)
+        # Download — skip when the caller already supplied bytes
+        if content is None:
+            logger.info("Downloading %s", uri)
+            content = self.cloudreve_client.get_file_content_sync(uri)
+        else:
+            logger.info("Using pre-supplied content for %s (%d bytes)", uri, len(content))
 
         # Parse
         logger.info("Parsing %s", filename)

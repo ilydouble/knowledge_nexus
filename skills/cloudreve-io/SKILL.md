@@ -42,6 +42,17 @@ prompt for the secret with `getpass` (hidden input). Pass `--no-interactive`
 to fail fast in scripts instead. After saving config, complete the OAuth
 authorization through the Web console (Cloudreve tab → click "Authorize").
 
+### Upload a file to the drive
+
+```bash
+# Upload a local report to a Cloudreve folder
+python3 cloudreve upload /tmp/campus-report.md --dest cloudreve://my/reports/
+
+# Returns JSON with status, dest_uri, and size
+```
+
+Requires the OAuth token to include the `Files.Write` scope.
+
 ### Browse the drive
 
 ```bash
@@ -80,6 +91,7 @@ Once scan completes, the files' `cloudreve://` URIs can be used by `knowledge-os
 | `ls [URI]` | list files/dirs at URI (default: `cloudreve://my`) |
 | `info <URI>` | metadata for a single file or directory |
 | `download <URI> [--out PATH]` | download file; prints local path |
+| `upload <PATH> --dest <URI>` | upload local file to a Cloudreve folder (requires Files.Write scope) |
 | `scan` | trigger a full recursive scan (background task) |
 | `scan-status` | last scan result / progress + `is_scanning` flag |
 

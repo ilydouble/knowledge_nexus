@@ -249,6 +249,111 @@ class CloudreveClient:
                 chunks.append(chunk)
         return b"".join(chunks)
 
+    # ------------------------------------------------------------------
+    # Upload (requires Files.Write scope)
+    # ------------------------------------------------------------------
+
+    def _upload_file_sync(
+        self,
+        content: bytes,
+        filename: str,
+        dest_uri: str,
+        *,
+        mime_type: str = "application/octet-stream",
+        overwrite: bool = True,
+    ) -> Any:
+        """Upload *content* to Cloudreve Pro v4 at *dest_uri*.
+
+        The upload uses Cloudreve's two-step session flow:
+          1. POST /api/v4/file/upload  — create an upload session.
+          2. PUT  <session_upload_url> — stream the raw bytes.
+
+        Parameters
+        ----------
+        content:   Raw bytes to upload.
+        filename:  Name the file will have in Cloudreve.
+        dest_uri:  Target folder URI, e.g. ``cloudreve://my/reports/``.
+                   If *dest_uri* ends with the desired filename the folder
+                   is inferred by stripping the last component.
+        mime_type: MIME type hint (optional).
+        overwrite: Whether to overwrite an existing file (default True).
+
+        Returns the Cloudreve response data dict from the session endpoint.
+        """
+        import mimetypes as _mimetypes
+
+        self.ensure_fresh_token()
+
+        # Normalise dest_uri to a folder URI
+        folder_uri = dest_uri if dest_uri.endswith("/") else dest_uri.rsplit("/", 1)[0] + "/"
+
+        if not mime_type or mime_type == "application/octet-stream":
+            guessed, _ = _mimetypes.guess_type(filename)
+            if guessed:
+                mime_type = guessed
+
+        # Step 1 — create upload session
+        init_url = f"{self.base_url}/api/v4/file/upload"
+        init_payload = {
+            "name": filename,
+            "uri": folder_uri,
+            "mime_type": mime_type,
+            "size": len(content),
+            "overwrite": overwrite,
+        }
+        resp = requests.post(init_url, json=init_payload, headers=self._headers(), timeout=self.timeout)
+        if self._is_auth_status(resp.status_code) and self.refresh_access_token_sync():
+            resp = requests.post(init_url, json=init_payload, headers=self._headers(), timeout=self.timeout)
+        if resp.status_code != 200:
+            self._raise_http_error(resp.status_code, endpoint="/api/v4/file/upload (init)")
+        payload = resp.json()
+        code = payload.get("code")
+        if code != 0:
+            if self._is_auth_code(code) and self.refresh_access_token_sync():
+                return self._upload_file_sync(content, filename, dest_uri, mime_type=mime_type, overwrite=overwrite)
+            raise CloudreveError(code=code, message=payload.get("msg") or "Upload session creation failed")
+
+        session_data = payload.get("data") or {}
+        upload_url: str | None = session_data.get("sessionID") and None  # Populated below
+
+        # Cloudreve returns either a direct upload URL or a sessionID
+        if "uploadURL" in session_data:
+            upload_url = session_data["uploadURL"]
+        elif "sessionID" in session_data:
+            session_id = session_data["sessionID"]
+            upload_url = f"{self.base_url}/api/v4/file/upload/{session_id}"
+
+        if not upload_url:
+            raise CloudreveError(code=-1, message="No upload URL returned by Cloudreve session endpoint")
+
+        # Step 2 — PUT raw bytes to the upload URL
+        put_headers = {"Content-Type": mime_type, "Content-Length": str(len(content))}
+        # Some Cloudreve storage backends require the auth token on the PUT too
+        if upload_url.startswith(self.base_url or ""):
+            put_headers.update(self._headers())
+
+        put_resp = requests.put(upload_url, data=content, headers=put_headers, timeout=(30.0, 300.0))
+        if put_resp.status_code not in (200, 201, 204):
+            self._raise_http_error(put_resp.status_code, endpoint=upload_url)
+
+        return session_data
+
+    async def upload_file(
+        self,
+        content: bytes,
+        filename: str,
+        dest_uri: str,
+        *,
+        mime_type: str = "application/octet-stream",
+        overwrite: bool = True,
+    ) -> Any:
+        """Async wrapper around :meth:`_upload_file_sync`."""
+        import asyncio
+        return await asyncio.to_thread(
+            self._upload_file_sync, content, filename, dest_uri,
+            mime_type=mime_type, overwrite=overwrite,
+        )
+
     def _iter_file_events_sync(self, uri: str = "cloudreve://my", client_id: str | None = None) -> Iterator[dict[str, Any]]:
         self.ensure_fresh_token()
         headers = self._headers()

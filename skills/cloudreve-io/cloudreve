@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import http.client
 import json
 import os
 import sys
@@ -23,6 +24,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 BASE = os.environ.get("KN_API_URL", "http://localhost:8000").rstrip("/")
 
@@ -127,6 +129,60 @@ def cmd_download(a):
     print(dest)   # print the path so the next step can consume it
 
 
+def cmd_upload(a):
+    """Upload a local file to Cloudreve via POST /api/cloudreve/files/upload (multipart)."""
+    path = a.path
+    if not os.path.isfile(path):
+        sys.exit(f"File not found: {path}")
+
+    filename = os.path.basename(path)
+    with open(path, "rb") as fh:
+        file_bytes = fh.read()
+
+    boundary = uuid.uuid4().hex
+    ctype = f"multipart/form-data; boundary={boundary}"
+
+    def _part(name: str, value: str) -> bytes:
+        return (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode()
+
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n".encode()
+        + file_bytes
+        + b"\r\n"
+        + _part("dest_uri", a.dest)
+        + _part("overwrite", "true" if a.overwrite else "false")
+        + f"--{boundary}--\r\n".encode()
+    )
+
+    parsed = urllib.parse.urlparse(BASE)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    conn = conn_cls(host, port, timeout=300)
+    try:
+        conn.request(
+            "POST",
+            "/api/cloudreve/files/upload",
+            body=body,
+            headers={"Content-Type": ctype, "Content-Length": str(len(body))},
+        )
+        resp = conn.getresponse()
+        raw = resp.read().decode()
+        if resp.status not in (200, 201):
+            sys.exit(f"HTTP {resp.status}: {raw}")
+        _out(json.loads(raw or "{}"))
+    except OSError as exc:
+        sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc})")
+    finally:
+        conn.close()
+
+
 def cmd_scan(a):
     _out(_req("POST", "/api/cloudreve/scan"))
 
@@ -164,6 +220,14 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("uri")
     dl.add_argument("--out", default=None, help="destination file path (default: auto temp file)")
     dl.set_defaults(fn=cmd_download)
+
+    ul = sub.add_parser("upload", help="upload a local file to Cloudreve (requires Files.Write scope)")
+    ul.add_argument("path", help="local file to upload")
+    ul.add_argument("--dest", metavar="URI", required=True,
+                    help="target folder URI, e.g. cloudreve://my/reports/")
+    ul.add_argument("--no-overwrite", dest="overwrite", action="store_false", default=True,
+                    help="fail if the file already exists instead of overwriting")
+    ul.set_defaults(fn=cmd_upload)
 
     sub.add_parser("scan", help="trigger a full recursive Cloudreve scan").set_defaults(fn=cmd_scan)
     sub.add_parser("scan-status", help="last scan result / progress").set_defaults(fn=cmd_scan_status)

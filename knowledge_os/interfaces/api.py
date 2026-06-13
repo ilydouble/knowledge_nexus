@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from fastapi import Depends, FastAPI, HTTPException
+import json
+import os
+
+from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from knowledge_os.application.governance import GovernanceService
@@ -75,6 +78,71 @@ def register_knowledge_os_api(
         service = CandidateExtractionService(store)
         batch = service.run(request)
         return {**service.describe_batch(batch.id), "extraction_mode": "manual"}
+
+    @app.post("/api/admin/candidates/extract/file")
+    async def admin_extract_from_file(
+        file: UploadFile,
+        source_uri: str | None = Form(default=None),
+        instructions: str | None = Form(default=None),
+        requested_by: str = Form(default="pi-agent"),
+        template_ids: str | None = Form(default=None),
+        store: KnowledgeOSStore = Depends(get_store),
+    ) -> dict[str, Any]:
+        """Extract candidates from a locally uploaded file.
+
+        The file is processed through the full pipeline (parse → classify →
+        LLM extract) without downloading from Cloudreve.  Use *source_uri* to
+        set the provenance label (e.g. ``local://my-report.md``); defaults to
+        ``local://<uploaded filename>``.
+
+        *template_ids* is an optional JSON array string, e.g.
+        ``'["campus_access_control", "campus_sensor"]'``.
+        """
+        if get_extraction_pipeline is None:
+            raise HTTPException(
+                status_code=503,
+                detail="File extraction unavailable: extraction pipeline not configured.",
+            )
+        pipeline = get_extraction_pipeline()
+        if pipeline is None:
+            raise HTTPException(
+                status_code=503,
+                detail="File extraction unavailable: missing LLM API key.",
+            )
+
+        content = await file.read()
+        filename = file.filename or "upload"
+        uri = source_uri or f"local://{filename}"
+
+        tids: list[str] | None = None
+        if template_ids:
+            try:
+                tids = json.loads(template_ids)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="template_ids must be a JSON array string")
+
+        try:
+            result = pipeline.run(
+                uri,
+                content=content,
+                filename=filename,
+                instructions=instructions,
+                requested_by=requested_by,
+                template_ids=tids,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        service = CandidateExtractionService(store)
+        return {
+            **service.describe_batch(result.batch.id),
+            "doc_type": result.doc_type,
+            "extraction_mode": "local_file",
+            "source_uri": uri,
+            "warnings": result.warnings,
+        }
 
     @app.get("/api/admin/candidates/{batch_id}")
     def admin_get_candidate_batch(

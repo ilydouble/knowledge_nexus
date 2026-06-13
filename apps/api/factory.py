@@ -5,7 +5,7 @@ from typing import Any
 import mimetypes
 import os
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
 
@@ -350,5 +350,35 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
             media_type=media_type or "application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    @app.post("/api/cloudreve/files/upload")
+    async def cloudreve_upload_file(
+        file: UploadFile,
+        dest_uri: str = Form(..., description="Target folder URI, e.g. cloudreve://my/reports/"),
+        overwrite: bool = Form(default=True),
+    ) -> dict[str, Any]:
+        """Upload a local file to Cloudreve.
+
+        Requires the OAuth token to have the ``Files.Write`` scope.
+        Returns the Cloudreve session data on success.
+        """
+        client = _get_client()
+        content = await file.read()
+        filename = file.filename or "upload"
+        mime_type = file.content_type or "application/octet-stream"
+        try:
+            data = await client.upload_file(
+                content, filename, dest_uri,
+                mime_type=mime_type, overwrite=overwrite,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {
+            "status": "uploaded",
+            "filename": filename,
+            "dest_uri": dest_uri,
+            "size": len(content),
+            "cloudreve": data,
+        }
 
     return app
