@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.models import IngestionJob, KnowledgeLink
 
@@ -19,3 +19,7 @@ class NexusRepository(Protocol):
     def list_links(self) -> list[KnowledgeLink]: ...
 
     def delete_document(self, uri: str) -> None: ...
+
+    def list_documents(self, limit: int = 100) -> list[dict[str, Any]]: ...
+
+    def list_chunks(self, document_uri: str) -> list[dict[str, Any]]: ...

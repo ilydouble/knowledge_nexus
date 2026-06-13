@@ -277,6 +277,20 @@ def register_knowledge_os_api(
         evidence = EvidenceService(store, repository=repository).purge_all()
         return {"neo4j": neo4j_counts, "evidence": evidence}
 
+    # ── Documents / chunks read endpoints ─────────────────────────────────────
+
+    @app.get("/api/admin/documents")
+    def admin_list_documents(limit: int = 200) -> dict[str, Any]:
+        """List semantic_documents stored in Postgres (file metadata + summary)."""
+        docs = repository.list_documents(limit=limit)
+        return {"documents": docs, "total": len(docs)}
+
+    @app.get("/api/admin/documents/chunks")
+    def admin_list_chunks(uri: str) -> dict[str, Any]:
+        """List semantic_chunks for a given document URI."""
+        chunks = repository.list_chunks(uri)
+        return {"uri": uri, "chunks": chunks, "total": len(chunks)}
+
     # ── Phase 5: governance endpoints ─────────────────────────────────────────
 
     @app.get("/api/admin/dashboard")

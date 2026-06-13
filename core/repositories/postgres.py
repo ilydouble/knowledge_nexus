@@ -145,6 +145,36 @@ class PostgresRepository:
             ).fetchall()
         return [self._link_from_row(row) for row in rows]
 
+    def list_documents(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return semantic_documents rows ordered by created_at DESC."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT uri, summary, tags, entities, status, requested_by,
+                       created_at, last_seen_at, content_hash, active_batch_id
+                FROM semantic_documents
+                WHERE tenant_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (self.tenant_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_chunks(self, document_uri: str) -> list[dict[str, Any]]:
+        """Return semantic_chunks for a given document URI ordered by chunk_index."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, chunk_index, text
+                FROM semantic_chunks
+                WHERE tenant_id = %s AND document_uri = %s
+                ORDER BY chunk_index ASC
+                """,
+                (self.tenant_id, document_uri),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def delete_document(self, uri: str) -> None:
         """Delete a document record and its associated chunks from Postgres."""
         with self._connect() as connection:

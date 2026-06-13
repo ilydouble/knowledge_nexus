@@ -214,10 +214,114 @@ function GraphTab() {
   );
 }
 
+// ─── Documents tab ────────────────────────────────────────────────────────────
+
+function DocRow({ doc }) {
+  const [open, setOpen] = useState(false);
+  const [chunks, setChunks] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const toggle = async () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (chunks !== null) return;
+    setLoading(true);
+    try {
+      const d = await api(`/api/admin/documents/chunks?uri=${encodeURIComponent(doc.uri)}`);
+      setChunks(d.chunks ?? []);
+    } catch (e) { setErr(e.message); } finally { setLoading(false); }
+  };
+
+  const tags = Array.isArray(doc.tags) ? doc.tags : [];
+
+  return (
+    <div className={`doc-row ${open ? "open" : ""}`}>
+      <div className="doc-row-header" onClick={toggle}>
+        <div className="doc-row-left">
+          <span className={`doc-status status ${doc.status || "active"}`}>{doc.status || "active"}</span>
+          <div className="doc-uri">{doc.uri}</div>
+          {tags.length > 0 && (
+            <div className="doc-tags">
+              {tags.map((t, i) => <span key={i} className="doc-tag">{t}</span>)}
+            </div>
+          )}
+        </div>
+        <div className="doc-row-right">
+          <span className="doc-date">{doc.created_at ? new Date(doc.created_at).toLocaleString() : "—"}</span>
+          <span className="doc-toggle">{open ? "▲" : "▼"}</span>
+        </div>
+      </div>
+
+      {doc.summary && (
+        <div className="doc-summary">{doc.summary}</div>
+      )}
+
+      {open && (
+        <div className="doc-chunks">
+          {err && <Alert style={{ marginBottom: 8 }}>{err}</Alert>}
+          {loading && <p className="muted">加载切片中…</p>}
+          {chunks && chunks.length === 0 && <p className="muted">该文件暂无切片记录</p>}
+          {chunks && chunks.map((c) => (
+            <div key={c.id} className="chunk-card">
+              <div className="chunk-idx">#{c.chunk_index}</div>
+              <div className="chunk-text">{c.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentsTab() {
+  const [docs, setDocs] = useState([]);
+  const [err, setErr] = useState("");
+  const [filter, setFilter] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api("/api/admin/documents?limit=200");
+      setDocs(d.documents ?? []); setErr("");
+    } catch (e) { setErr(e.message); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  usePolling(load, 15000);
+
+  const filtered = filter
+    ? docs.filter((d) => d.uri?.includes(filter) || d.status?.includes(filter))
+    : docs;
+
+  return (
+    <div>
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">文件库（{filtered.length} / {docs.length}）</span>
+          <div className="btn-row">
+            <input className="form-control" style={{ width: 220, marginTop: 0 }}
+              placeholder="过滤 URI / 状态…"
+              value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" onClick={load}>刷新</button>
+          </div>
+        </div>
+        <div className="card-body" style={{ padding: "12px 16px" }}>
+          {err && <Alert style={{ marginBottom: 12 }}>{err}</Alert>}
+          {filtered.length === 0
+            ? <p className="muted">暂无文件记录</p>
+            : filtered.map((doc) => <DocRow key={doc.uri} doc={doc} />)
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App shell ────────────────────────────────────────────────────────────────
 
 const TABS = [
   { id: "dashboard", label: "仪表盘" },
+  { id: "documents", label: "文件库" },
   { id: "graph", label: "知识图谱" },
 ];
 
@@ -238,6 +342,7 @@ function App() {
       </header>
       <main className="app-main">
         {tab === "dashboard" && <DashboardTab />}
+        {tab === "documents" && <DocumentsTab />}
         {tab === "graph" && <GraphTab />}
       </main>
     </div>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from core.models import IngestionJob, KnowledgeLink
 
 
@@ -30,4 +32,12 @@ class InMemoryRepository:
         return list(self.links.values())
 
     def delete_document(self, uri: str) -> None:
-        """No-op: semantic documents no longer stored in this repository."""
+        """No-op: semantic documents not stored in memory repository."""
+
+    def list_documents(self, limit: int = 100) -> list[dict[str, Any]]:
+        """No-op stub: always returns empty list for in-memory backend."""
+        return []
+
+    def list_chunks(self, document_uri: str) -> list[dict[str, Any]]:
+        """No-op stub: always returns empty list for in-memory backend."""
+        return []
