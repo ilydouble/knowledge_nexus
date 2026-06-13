@@ -69,10 +69,6 @@ cd "$REPO_DIR"
 start_service "FastAPI 后端 (8000)" "api" \
   conda run -n "$CONDA_ENV" uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-# ② Worker
-start_service "Worker" "worker" \
-  conda run -n "$CONDA_ENV" python -m apps.worker.main
-
 # ③ Web 控制台
 if [ "$NO_WEB" = false ]; then
   if command -v npm &>/dev/null; then
