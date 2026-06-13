@@ -9,7 +9,32 @@ from core.services.knowledge_extractor import (
     _MAP_REDUCE_THRESHOLD,
     _SEGMENT_SIZE,
     _cosine_sim,
+    _parse_llm_json,
 )
+
+
+def test_parse_llm_json_strips_markdown_code_fence():
+    """Models like glm-4-flash wrap JSON in ```json fences; these must parse."""
+    fenced = '```json\n{"summary": "ok", "entities": []}\n```'
+    assert _parse_llm_json(fenced) == {"summary": "ok", "entities": []}
+
+
+def test_parse_llm_json_handles_plain_and_bare_fence():
+    assert _parse_llm_json('{"a": 1}') == {"a": 1}
+    assert _parse_llm_json('```\n{"a": 1}\n```') == {"a": 1}
+
+
+def test_parse_llm_json_extracts_embedded_object():
+    """Falls back to the outermost {...} span when extra prose surrounds it."""
+    noisy = 'Here is the result:\n{"a": 1}\nThanks!'
+    assert _parse_llm_json(noisy) == {"a": 1}
+
+
+def test_parse_llm_json_rejects_empty_content():
+    import pytest
+
+    with pytest.raises(ValueError):
+        _parse_llm_json("   ")
 
 
 class FakeResponse:

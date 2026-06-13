@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +16,36 @@ from core.services.semantic_matcher import SemanticTemplateMatcher
 from core.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+#: Matches a Markdown code fence wrapper, e.g. ```json\n{...}\n``` .
+_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
+
+
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    """Parse LLM JSON output, tolerating Markdown code fences.
+
+    Some models (e.g. glm-4-flash) ignore strict ``json_schema`` mode and wrap
+    their output in ```` ```json … ``` ```` fences, which breaks a plain
+    ``json.loads``.  This strips the fence and, as a last resort, extracts the
+    first balanced ``{ … }`` block before parsing.
+    """
+    text = (content or "").strip()
+    if not text:
+        raise ValueError("LLM returned empty content")
+
+    fenced = _CODE_FENCE_RE.match(text)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Last resort: grab the outermost {...} span.
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
 
 
 @dataclass
@@ -336,7 +367,7 @@ Rules:
         response.raise_for_status()
         payload = response.json()
         content = payload["choices"][0]["message"]["content"]
-        return json.loads(content)
+        return _parse_llm_json(content)
 
     # ------------------------------------------------------------------
     # Map-Reduce helpers
