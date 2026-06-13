@@ -40,11 +40,7 @@ class Neo4jGraphStore:
         return GraphResult(nodes=list(nodes.values()), edges=list(edges.values()))
 
     def full_graph(self, limit: int = 500) -> GraphResult:
-        """Return nodes and edges in the graph (up to *limit* of each).
-
-        Matches any node label and any relationship type so that data
-        imported from external pipelines (non-NexusFile) is visible too.
-        """
+        """Return NexusFile nodes and NEXUS_RELATION edges (up to *limit* of each)."""
         with self.driver.session() as session:
             node_records = session.execute_read(self._all_nodes_tx, limit)
             edge_records = session.execute_read(self._all_edges_tx, limit)
@@ -194,15 +190,16 @@ class Neo4jGraphStore:
 
     @staticmethod
     def _all_nodes_tx(tx, limit: int):
-        result = tx.run("MATCH (n) RETURN n LIMIT $limit", limit=limit)
+        result = tx.run("MATCH (n:NexusFile) RETURN n LIMIT $limit", limit=limit)
         return list(result)
 
     @staticmethod
     def _all_edges_tx(tx, limit: int):
         result = tx.run(
             """
-            MATCH (source)-[edge]->(target)
+            MATCH (source:NexusFile)-[edge:NEXUS_RELATION]->(target:NexusFile)
             RETURN source, edge, target
+            ORDER BY edge.id
             LIMIT $limit
             """,
             limit=limit,
