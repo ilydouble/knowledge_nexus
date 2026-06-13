@@ -267,7 +267,19 @@ class Worker:
         Loop 3 – Batch processor    : runs CandidateExtractionPipeline on pending jobs.
                                       Results are candidate batches awaiting review —
                                       nothing is written to Neo4j automatically.
+
+        When ENABLE_PERIODIC_SYNC is false, all three loops are skipped and the
+        worker idles, so a cleared graph stays empty until the user explicitly
+        extracts/commits again.
         """
+        if not self.settings.enable_periodic_sync:
+            logger.info(
+                "Periodic sync disabled (ENABLE_PERIODIC_SYNC=false); "
+                "worker idling — no SSE listener, scan, or extraction will run."
+            )
+            while True:
+                await asyncio.sleep(3600)
+
         async def _sse_loop() -> None:
             while True:
                 try:

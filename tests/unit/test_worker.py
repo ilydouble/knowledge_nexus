@@ -141,6 +141,7 @@ def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):
     """
     seen = {"runs": 0, "sleeps": 0}
     worker = Worker.__new__(Worker)
+    worker.settings = type("S", (), {"enable_periodic_sync": True})()
 
     async def fake_run():
         seen["runs"] += 1
@@ -168,3 +169,35 @@ def test_worker_run_forever_reconnects_after_stream_closes(monkeypatch):
 
     assert seen["runs"] == 1
     assert seen["sleeps"] == 1
+
+
+def test_worker_run_forever_idles_when_periodic_sync_disabled(monkeypatch):
+    """When ENABLE_PERIODIC_SYNC is false, run_forever must not start any loop."""
+    seen = {"runs": 0, "scans": 0, "pending": 0, "sleeps": 0}
+    worker = Worker.__new__(Worker)
+    worker.settings = type("S", (), {"enable_periodic_sync": False})()
+
+    async def fake_run():
+        seen["runs"] += 1
+
+    async def fake_scan_loop(interval=600.0):
+        seen["scans"] += 1
+
+    async def fake_process_pending_loop(poll=30.0, batch=3):
+        seen["pending"] += 1
+
+    async def fake_sleep(delay):
+        seen["sleeps"] += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "run", fake_run)
+    monkeypatch.setattr(worker, "scan_loop", fake_scan_loop)
+    monkeypatch.setattr(worker, "process_pending_loop", fake_process_pending_loop)
+    monkeypatch.setattr("apps.worker.main.asyncio.sleep", fake_sleep)
+
+    try:
+        asyncio.run(worker.run_forever())
+    except KeyboardInterrupt:
+        pass
+
+    assert seen == {"runs": 0, "scans": 0, "pending": 0, "sleeps": 1}

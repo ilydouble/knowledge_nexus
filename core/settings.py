@@ -61,6 +61,10 @@ class Settings:
     embedding_dimensions: int = 2048
     embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4/embeddings"
     nexus_storage_backend: str = "memory"
+    # When False, the worker stops all automatic discovery loops (SSE listener,
+    # periodic Cloudreve scan, and pending-job extraction). A cleared graph then
+    # stays empty until the user explicitly extracts/commits again.
+    enable_periodic_sync: bool = True
     hyper_extract_runtime_enabled: bool = False
     hyper_extract_runtime_max_templates: int = 1
 
@@ -114,6 +118,7 @@ class Settings:
             embedding_dimensions=int(env("EMBEDDING_DIMENSIONS", str(cls.embedding_dimensions)) or str(cls.embedding_dimensions)),
             embedding_base_url=env("EMBEDDING_BASE_URL", cls.embedding_base_url) or cls.embedding_base_url,
             nexus_storage_backend=env("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend) or cls.nexus_storage_backend,
+            enable_periodic_sync=env_bool("ENABLE_PERIODIC_SYNC", cls.enable_periodic_sync),
             hyper_extract_runtime_enabled=env_bool(
                 "HYPER_EXTRACT_RUNTIME_ENABLED",
                 cls.hyper_extract_runtime_enabled,

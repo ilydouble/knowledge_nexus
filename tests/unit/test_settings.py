@@ -106,6 +106,24 @@ def test_settings_loads_cloudreve_oauth_settings(monkeypatch):
     assert settings.cloudreve_token_store_path == "data/runtime/tokens.json"
 
 
+def test_settings_periodic_sync_defaults_enabled(monkeypatch, tmp_path):
+    # chdir to an empty dir so the repo's .env does not mask the dataclass default.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ENABLE_PERIODIC_SYNC", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.enable_periodic_sync is True
+
+
+def test_settings_periodic_sync_disabled_via_env(monkeypatch):
+    monkeypatch.setenv("ENABLE_PERIODIC_SYNC", "false")
+
+    settings = Settings.from_env()
+
+    assert settings.enable_periodic_sync is False
+
+
 def test_settings_loads_cloudreve_oauth_config_path(monkeypatch):
     monkeypatch.setenv("CLOUDREVE_OAUTH_CONFIG_PATH", "data/runtime/oauth_config.json")
 
