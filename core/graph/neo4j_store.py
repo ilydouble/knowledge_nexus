@@ -39,11 +39,15 @@ class Neo4jGraphStore:
             edges[edge.id] = edge
         return GraphResult(nodes=list(nodes.values()), edges=list(edges.values()))
 
-    def full_graph(self) -> GraphResult:
-        """Return every node and every edge in the graph."""
+    def full_graph(self, limit: int = 500) -> GraphResult:
+        """Return nodes and edges in the graph (up to *limit* of each).
+
+        Matches any node label and any relationship type so that data
+        imported from external pipelines (non-NexusFile) is visible too.
+        """
         with self.driver.session() as session:
-            node_records = session.execute_read(self._all_nodes_tx)
-            edge_records = session.execute_read(self._all_edges_tx)
+            node_records = session.execute_read(self._all_nodes_tx, limit)
+            edge_records = session.execute_read(self._all_edges_tx, limit)
         nodes: dict[str, GraphNode] = {}
         for record in node_records:
             node = self._node_from_neo4j(record["n"])
@@ -189,18 +193,19 @@ class Neo4jGraphStore:
         return list(result)
 
     @staticmethod
-    def _all_nodes_tx(tx):
-        result = tx.run("MATCH (n:NexusFile) RETURN n")
+    def _all_nodes_tx(tx, limit: int):
+        result = tx.run("MATCH (n) RETURN n LIMIT $limit", limit=limit)
         return list(result)
 
     @staticmethod
-    def _all_edges_tx(tx):
+    def _all_edges_tx(tx, limit: int):
         result = tx.run(
             """
-            MATCH (source:NexusFile)-[edge:NEXUS_RELATION]->(target:NexusFile)
+            MATCH (source)-[edge]->(target)
             RETURN source, edge, target
-            ORDER BY edge.id
-            """
+            LIMIT $limit
+            """,
+            limit=limit,
         )
         return list(result)
 
@@ -269,26 +274,56 @@ class Neo4jGraphStore:
         return list(result)
 
     @staticmethod
+    def _coerce_value(v):
+        """Convert Neo4j-specific types to JSON-serialisable Python types."""
+        if v is None:
+            return v
+        type_name = type(v).__module__
+        if type_name.startswith("neo4j.time") or type_name.startswith("neo4j.graph"):
+            return str(v)
+        if isinstance(v, (list, tuple)):
+            return [Neo4jGraphStore._coerce_value(i) for i in v]
+        if isinstance(v, dict):
+            return {k2: Neo4jGraphStore._coerce_value(v2) for k2, v2 in v.items()}
+        return v
+
+    @staticmethod
     def _node_from_neo4j(node) -> GraphNode:
+        # Stable id: prefer stored 'id', then 'name', then element_id (Neo4j internal)
+        try:
+            elem_id = node.element_id
+        except AttributeError:
+            elem_id = str(getattr(node, "id", id(node)))
+
+        node_id = node.get("id") or node.get("name") or elem_id
+        node_uri = node.get("uri")
+        node_label = node.get("label") or node.get("name") or node_uri or str(node_id)
+        props = {k: Neo4jGraphStore._coerce_value(v) for k, v in node.items()}
+
         return GraphNode(
-            id=node.get("id") or f"file:{node.get('uri')}",
-            uri=node.get("uri"),
-            label=node.get("label") or node.get("uri"),
-            summary=node.get("summary"),
+            id=str(node_id),
+            uri=node_uri,
+            label=str(node_label),
+            summary=node.get("summary") or node.get("description"),
             layer=KnowledgeLayer(node["layer"]) if node.get("layer") else None,
             accessible=node.get("accessible", True),
+            properties=props,
         )
 
     @staticmethod
     def _edge_from_neo4j(edge, source_id: str, target_id: str) -> GraphEdge:
+        # For NexusFile edges: stored 'relation' property.
+        # For generic edges: fall back to the relationship type string.
+        relation = edge.get("relation") or getattr(edge, "type", None) or "RELATES_TO"
+        edge_id = edge.get("id") or f"edge:{source_id}:{relation}:{target_id}"
         return GraphEdge(
-            id=edge["id"],
+            id=str(edge_id),
             source=source_id,
             target=target_id,
-            relation=edge["relation"],
-            layer=KnowledgeLayer(edge["layer"]),
-            owner_scope=edge["owner_scope"],
-            source_file_uri=edge["source_file_uri"],
-            visibility=edge["visibility"],
+            relation=str(relation),
+            layer=KnowledgeLayer(edge["layer"]) if edge.get("layer") else KnowledgeLayer.L2,
+            owner_scope=edge.get("owner_scope") or "",
+            source_file_uri=edge.get("source_file_uri") or "",
+            visibility=edge.get("visibility") or "team",
         )
 

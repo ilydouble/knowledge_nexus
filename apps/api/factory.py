@@ -216,10 +216,10 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         return store.status()
 
     @app.get("/api/graph")
-    def get_graph(uri: str | None = None):
+    def get_graph(uri: str | None = None, limit: int = 500):
         """Return the Neo4j knowledge graph.
 
-        - Without ``uri``: return the full graph (all nodes and edges).
+        - Without ``uri``: return the full graph (up to *limit* nodes/edges).
         - With ``uri``: return the 1-hop neighborhood of the given document.
         """
         if _neo4j_store is None:
@@ -228,7 +228,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         if uri:
             result = _neo4j_store.neighborhood(uri, layers=all_layers)
         else:
-            result = _neo4j_store.full_graph()
+            result = _neo4j_store.full_graph(limit=limit)
         return result
 
     @app.post("/api/graph/ask")
