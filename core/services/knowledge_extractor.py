@@ -49,6 +49,18 @@ def _parse_llm_json(content: str) -> dict[str, Any]:
 
 
 @dataclass
+class SegmentResult:
+    """Per-segment extraction result; used to populate semantic_chunks."""
+    chunk_index: int
+    char_start: int
+    char_end: int
+    text: str
+    summary: str
+    tags: list[str]
+    entities: list[dict[str, Any]]
+
+
+@dataclass
 class ExtractedKnowledge:
     """Result of knowledge extraction."""
     summary: str
@@ -58,6 +70,10 @@ class ExtractedKnowledge:
     key_points: list[dict[str, Any]]
     confidence: float = 0.8
     raw_response: dict[str, Any] = field(default_factory=dict)
+    # Per-segment results for chunk-level storage.
+    # Single-pass: one entry covering the whole document.
+    # Map-reduce: one entry per text segment.
+    segment_results: list[SegmentResult] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -267,9 +283,23 @@ class KnowledgeExtractor:
         # ── Standard LLM path ─────────────────────────────────────────────────
         if len(text) <= _MAP_REDUCE_THRESHOLD:
             # Single-pass: original behaviour, cap at _SINGLE_PASS_LIMIT
-            prompt = self._build_extraction_prompt(text[:_SINGLE_PASS_LIMIT], ontology, doc_type)
+            capped = text[:_SINGLE_PASS_LIMIT]
+            prompt = self._build_extraction_prompt(capped, ontology, doc_type)
             result = self._call_chat_completion(prompt)
-            return self._normalize_result(result, doc_type)
+            knowledge = self._normalize_result(result, doc_type)
+            # Single segment covers the whole (capped) document
+            knowledge.segment_results = [
+                SegmentResult(
+                    chunk_index=0,
+                    char_start=0,
+                    char_end=len(capped),
+                    text=capped,
+                    summary=knowledge.summary,
+                    tags=knowledge.tags,
+                    entities=knowledge.entities,
+                )
+            ]
+            return knowledge
 
         # Map-Reduce: long document
         logger.info(
@@ -373,13 +403,16 @@ Rules:
     # Map-Reduce helpers
     # ------------------------------------------------------------------
 
-    def _split_text(self, text: str) -> list[str]:
-        """Split *text* into overlapping segments for map-reduce extraction."""
-        segments: list[str] = []
+    def _split_text(self, text: str) -> list[tuple[str, int, int]]:
+        """Split *text* into overlapping segments for map-reduce extraction.
+
+        Returns a list of ``(segment_text, char_start, char_end)`` tuples.
+        """
+        segments: list[tuple[str, int, int]] = []
         start = 0
         while start < len(text):
             end = min(start + _SEGMENT_SIZE, len(text))
-            segments.append(text[start:end])
+            segments.append((text[start:end], start, end))
             if end >= len(text):
                 break
             start = end - _SEGMENT_OVERLAP
@@ -395,7 +428,8 @@ Rules:
         for parallel LLM calls and defer relation pruning until after the
         global merge so cross-segment relations are preserved.
         """
-        segments = self._split_text(text)
+        seg_tuples = self._split_text(text)
+        segments = [s for s, _, _ in seg_tuples]
         logger.info(
             "Map-reduce: %d segments × ~%d chars (workers=%d, two_stage=%s)",
             len(segments), _SEGMENT_SIZE, self.max_workers, self.two_stage_extraction,
@@ -412,7 +446,26 @@ Rules:
             raw = self._call_chat_completion(prompt)
             return self._normalize_result(raw, doc_type)
 
-        return self._merge_extractions(partials)
+        merged = self._merge_extractions(partials)
+
+        # Attach per-segment results for chunk-level storage
+        seg_results: list[SegmentResult] = []
+        for idx, (partial, (seg_text, char_start, char_end)) in enumerate(
+            zip(partials, seg_tuples)
+        ):
+            seg_results.append(
+                SegmentResult(
+                    chunk_index=idx,
+                    char_start=char_start,
+                    char_end=char_end,
+                    text=seg_text,
+                    summary=partial.summary,
+                    tags=partial.tags,
+                    entities=partial.entities,
+                )
+            )
+        merged.segment_results = seg_results
+        return merged
 
     # ------------------------------------------------------------------
     # One-stage concurrent extraction

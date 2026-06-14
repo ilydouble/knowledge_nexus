@@ -71,7 +71,10 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     repo = repository or build_repository(app_settings)
     app.state.settings = app_settings
     app.state.repository = repo
-    app.state.scanner = CloudreveScanner(CloudreveClient(), repo)
+    # Scanner is Cloudreve-specific; build with an empty-token client so it
+    # starts without crashing when no OAuth token is present.
+    _scanner_client = CloudreveClient(token="")
+    app.state.scanner = CloudreveScanner(_scanner_client, repo)
     app.state.knowledge_os_store = build_knowledge_os_store(app_settings, repo)
 
     # Neo4j graph store — used by the /api/graph endpoint.
@@ -246,9 +249,12 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         answer = agent_ask(request.question, _graph_qa_agent)
         return {"question": request.question, "answer": answer}
 
-    # Build CandidateExtractionPipeline — lazy, returns None if prerequisites missing
+    # Build CandidateExtractionPipeline — lazy, returns None if prerequisites missing.
+    # Pass repo so the pipeline can persist semantic_documents / semantic_chunks.
     from knowledge_os.application.extraction_pipeline import build_candidate_extraction_pipeline
-    _extraction_pipeline = build_candidate_extraction_pipeline(app_settings, app.state.knowledge_os_store)
+    _extraction_pipeline = build_candidate_extraction_pipeline(
+        app_settings, app.state.knowledge_os_store, repository=repo
+    )
 
     def get_extraction_pipeline():
         return _extraction_pipeline

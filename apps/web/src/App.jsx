@@ -129,19 +129,31 @@ function paletteColor(type) {
   return p[(type || "").toLowerCase()] || "#94a3b8";
 }
 
-function GraphTab() {
+function GraphTab({ initialUri, onUriConsumed }) {
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [cluster, setCluster] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [filterUri, setFilterUri] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (uri) => {
     setLoading(true); setErr("");
-    try { setGraphData(await api("/api/graph")); }
+    const endpoint = uri ? `/api/graph?uri=${encodeURIComponent(uri)}` : "/api/graph";
+    try { setGraphData(await api(endpoint)); }
     catch (e) { setErr(e.message); } finally { setLoading(false); }
   }, []);
+
   useEffect(() => { load(); }, [load]);
+
+  // When navigated from Documents tab, auto-load the file neighbourhood
+  useEffect(() => {
+    if (initialUri) {
+      setFilterUri(initialUri);
+      load(initialUri);
+      onUriConsumed?.();
+    }
+  }, [initialUri]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nodes = graphData.nodes || [];
   const edges = graphData.edges || [];
@@ -149,9 +161,18 @@ function GraphTab() {
   return (
     <div className="graphTab">
       <div className="graphControls">
-        <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>
+        <button className="btn btn-secondary btn-sm" onClick={() => load(filterUri || undefined)} disabled={loading}>
           {loading ? "加载中…" : "刷新图谱"}
         </button>
+        {filterUri && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => { setFilterUri(""); load(); }}
+            title="清除文件过滤，显示完整图谱"
+          >
+            ✕ {filterUri.split("/").pop()}
+          </button>
+        )}
         <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
           <input type="checkbox" checked={cluster} onChange={(e) => setCluster(e.target.checked)}
             style={{ width: "auto", margin: 0 }} />
@@ -216,7 +237,7 @@ function GraphTab() {
 
 // ─── Documents tab ────────────────────────────────────────────────────────────
 
-function DocRow({ doc }) {
+function DocRow({ doc, onViewGraph }) {
   const [open, setOpen] = useState(false);
   const [chunks, setChunks] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -234,21 +255,63 @@ function DocRow({ doc }) {
   };
 
   const tags = Array.isArray(doc.tags) ? doc.tags : [];
+  const entities = Array.isArray(doc.entities) ? doc.entities : [];
 
   return (
     <div className={`doc-row ${open ? "open" : ""}`}>
       <div className="doc-row-header" onClick={toggle}>
         <div className="doc-row-left">
           <span className={`doc-status status ${doc.status || "active"}`}>{doc.status || "active"}</span>
-          <div className="doc-uri">{doc.uri}</div>
+          {doc.source_type && (
+            <span className="doc-tag" style={{ background: "#e0f2fe", color: "#0369a1", marginRight: 4 }}>
+              {doc.source_type}
+            </span>
+          )}
+          {doc.doc_type && (
+            <span className="doc-tag" style={{ background: "#f3e8ff", color: "#7e22ce", marginRight: 4 }}>
+              {doc.doc_type}
+            </span>
+          )}
+          <div className="doc-uri">{doc.filename || doc.uri}</div>
+          <div className="doc-uri" style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>{doc.uri}</div>
           {tags.length > 0 && (
             <div className="doc-tags">
               {tags.map((t, i) => <span key={i} className="doc-tag">{t}</span>)}
             </div>
           )}
+          {entities.length > 0 && (
+            <div className="doc-tags" style={{ marginTop: 2 }}>
+              {entities.slice(0, 8).map((e, i) => (
+                <span key={i} className="doc-tag" style={{ background: "#fef3c7", color: "#92400e" }}>
+                  {e.label || e.id}
+                </span>
+              ))}
+              {entities.length > 8 && (
+                <span className="doc-tag" style={{ background: "#f1f5f9", color: "#64748b" }}>
+                  +{entities.length - 8}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="doc-row-right">
+          {doc.size_bytes && (
+            <span className="doc-date" style={{ marginRight: 8 }}>
+              {(doc.size_bytes / 1024).toFixed(1)} KB
+            </span>
+          )}
+          {doc.chunk_count > 1 && (
+            <span className="doc-date" style={{ marginRight: 8 }}>{doc.chunk_count} 片段</span>
+          )}
           <span className="doc-date">{doc.created_at ? new Date(doc.created_at).toLocaleString() : "—"}</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ marginLeft: 8, fontSize: 12, padding: "2px 8px" }}
+            onClick={(e) => { e.stopPropagation(); onViewGraph(doc.uri); }}
+            title="在图谱中查看"
+          >
+            🔗 图谱
+          </button>
           <span className="doc-toggle">{open ? "▲" : "▼"}</span>
         </div>
       </div>
@@ -265,7 +328,22 @@ function DocRow({ doc }) {
           {chunks && chunks.map((c) => (
             <div key={c.id} className="chunk-card">
               <div className="chunk-idx">#{c.chunk_index}</div>
-              <div className="chunk-text">{c.text}</div>
+              {c.summary && <div className="doc-summary" style={{ fontSize: 13 }}>{c.summary}</div>}
+              {Array.isArray(c.tags) && c.tags.length > 0 && (
+                <div className="doc-tags" style={{ margin: "4px 0" }}>
+                  {c.tags.map((t, i) => <span key={i} className="doc-tag">{t}</span>)}
+                </div>
+              )}
+              {Array.isArray(c.entities) && c.entities.length > 0 && (
+                <div className="doc-tags" style={{ margin: "4px 0" }}>
+                  {c.entities.slice(0, 6).map((e, i) => (
+                    <span key={i} className="doc-tag" style={{ background: "#fef3c7", color: "#92400e" }}>
+                      {e.label || e.id}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="chunk-text">{c.text?.slice(0, 300)}{c.text?.length > 300 ? "…" : ""}</div>
             </div>
           ))}
         </div>
@@ -274,7 +352,69 @@ function DocRow({ doc }) {
   );
 }
 
-function DocumentsTab() {
+function LocalAnalyzeForm({ onSuccess }) {
+  const [path, setPath] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [result, setResult] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!path.trim()) return;
+    setBusy(true); setErr(""); setResult(null);
+    try {
+      const r = await api("/api/admin/candidates/extract/path", {
+        method: "POST",
+        body: { path: path.trim(), instructions: instructions.trim() || undefined },
+      });
+      setResult(r);
+      onSuccess?.();
+    } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-header"><span className="card-title">本地文件分析</span></div>
+      <div className="card-body" style={{ padding: "12px 16px" }}>
+        <form onSubmit={submit} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 300px" }}>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: 500 }}>文件路径（绝对路径）</label>
+            <input
+              className="form-control"
+              style={{ marginTop: 0 }}
+              placeholder="/data/reports/my-file.pdf"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px" }}>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: 500 }}>提取指令（可选）</label>
+            <input
+              className="form-control"
+              style={{ marginTop: 0 }}
+              placeholder="聚焦于…"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-primary btn-sm" type="submit" disabled={busy || !path.trim()}>
+            {busy ? "分析中…" : "开始分析"}
+          </button>
+        </form>
+        {err && <Alert style={{ marginTop: 8 }}>{err}</Alert>}
+        {result && (
+          <Alert type="success" style={{ marginTop: 8 }}>
+            ✓ 分析完成 — 批次 {result.batch_id}，提取 {result.entity_count ?? 0} 实体，{result.relation_count ?? 0} 关系
+            {result.warnings?.length > 0 && <div style={{ marginTop: 4, fontSize: 12 }}>{result.warnings.join("；")}</div>}
+          </Alert>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DocumentsTab({ onViewGraph }) {
   const [docs, setDocs] = useState([]);
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("");
@@ -290,17 +430,23 @@ function DocumentsTab() {
   usePolling(load, 15000);
 
   const filtered = filter
-    ? docs.filter((d) => d.uri?.includes(filter) || d.status?.includes(filter))
+    ? docs.filter((d) =>
+        d.uri?.includes(filter) ||
+        d.status?.includes(filter) ||
+        d.doc_type?.includes(filter) ||
+        d.filename?.includes(filter)
+      )
     : docs;
 
   return (
     <div>
+      <LocalAnalyzeForm onSuccess={load} />
       <div className="card">
         <div className="card-header">
           <span className="card-title">文件库（{filtered.length} / {docs.length}）</span>
           <div className="btn-row">
             <input className="form-control" style={{ width: 220, marginTop: 0 }}
-              placeholder="过滤 URI / 状态…"
+              placeholder="过滤 URI / 状态 / 类型…"
               value={filter} onChange={(e) => setFilter(e.target.value)} />
             <button className="btn btn-secondary btn-sm" onClick={load}>刷新</button>
           </div>
@@ -309,7 +455,7 @@ function DocumentsTab() {
           {err && <Alert style={{ marginBottom: 12 }}>{err}</Alert>}
           {filtered.length === 0
             ? <p className="muted">暂无文件记录</p>
-            : filtered.map((doc) => <DocRow key={doc.uri} doc={doc} />)
+            : filtered.map((doc) => <DocRow key={doc.uri} doc={doc} onViewGraph={onViewGraph} />)
           }
         </div>
       </div>
@@ -327,6 +473,13 @@ const TABS = [
 
 function App() {
   const [tab, setTab] = useState("dashboard");
+  const [graphUri, setGraphUri] = useState(null);
+
+  const handleViewGraph = (uri) => {
+    setGraphUri(uri);
+    setTab("graph");
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -342,8 +495,8 @@ function App() {
       </header>
       <main className="app-main">
         {tab === "dashboard" && <DashboardTab />}
-        {tab === "documents" && <DocumentsTab />}
-        {tab === "graph" && <GraphTab />}
+        {tab === "documents" && <DocumentsTab onViewGraph={handleViewGraph} />}
+        {tab === "graph" && <GraphTab initialUri={graphUri} onUriConsumed={() => setGraphUri(null)} />}
       </main>
     </div>
   );

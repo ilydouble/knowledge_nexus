@@ -9,7 +9,7 @@ import os
 from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from knowledge_os.application.extraction_pipeline import ExtractionInputError
+from knowledge_os.application.extraction_pipeline import ExtractionInputError, ExtractionPipelineResult
 from knowledge_os.application.governance import GovernanceService
 from knowledge_os.application.services import (
     CandidateExtractionService,
@@ -27,6 +27,15 @@ if TYPE_CHECKING:
 
 class CandidatePatchRequest(BaseModel):
     edits: list[CandidateEdit]
+
+
+class LocalPathExtractRequest(BaseModel):
+    """Request body for local file-path extraction."""
+    path: str
+    source_uri: str | None = None
+    instructions: str | None = None
+    requested_by: str = "pi-agent"
+    template_ids: list[str] | None = None
 
 
 def register_knowledge_os_api(
@@ -147,6 +156,59 @@ def register_knowledge_os_api(
             **service.describe_batch(result.batch.id),
             "doc_type": result.doc_type,
             "extraction_mode": "local_file",
+            "source_uri": uri,
+            "warnings": result.warnings,
+        }
+
+    @app.post("/api/admin/candidates/extract/path")
+    def admin_extract_from_path(
+        request: LocalPathExtractRequest,
+        store: KnowledgeOSStore = Depends(get_store),
+    ) -> dict[str, Any]:
+        """Extract candidates from a local file path.
+
+        The file is read from the server's local filesystem.  Use
+        *source_uri* to override the provenance label; defaults to
+        ``local://<filename>``.  Walks the full pipeline: parse →
+        classify → LLM extract → persist semantic archive → candidate batch.
+        """
+        if get_extraction_pipeline is None:
+            raise HTTPException(
+                status_code=503,
+                detail="File extraction unavailable: extraction pipeline not configured.",
+            )
+        pipeline = get_extraction_pipeline()
+        if pipeline is None:
+            raise HTTPException(
+                status_code=503,
+                detail="File extraction unavailable: missing LLM API key.",
+            )
+
+        import os as _os
+        abs_path = _os.path.abspath(request.path)
+        filename = _os.path.basename(abs_path)
+        uri = request.source_uri or f"local://{abs_path}"
+
+        try:
+            result = pipeline.run(
+                uri,
+                instructions=request.instructions,
+                requested_by=request.requested_by,
+                template_ids=request.template_ids,
+            )
+        except ExtractionInputError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Extraction failed: {exc}",
+            ) from exc
+
+        service = CandidateExtractionService(store)
+        return {
+            **service.describe_batch(result.batch.id),
+            "doc_type": result.doc_type,
+            "extraction_mode": "local_path",
             "source_uri": uri,
             "warnings": result.warnings,
         }

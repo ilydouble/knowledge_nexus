@@ -33,6 +33,12 @@ ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ
 ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS content_hash TEXT;
 ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS active_batch_id TEXT;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS filename TEXT;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'local';
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS mime_type TEXT;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS size_bytes INTEGER;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS doc_type TEXT;
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS chunk_count INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS semantic_chunks (
     id TEXT PRIMARY KEY,
@@ -41,6 +47,12 @@ CREATE TABLE IF NOT EXISTS semantic_chunks (
     chunk_index INTEGER NOT NULL,
     text TEXT NOT NULL
 );
+
+ALTER TABLE semantic_chunks ADD COLUMN IF NOT EXISTS summary TEXT;
+ALTER TABLE semantic_chunks ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE semantic_chunks ADD COLUMN IF NOT EXISTS entities JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE semantic_chunks ADD COLUMN IF NOT EXISTS char_start INTEGER;
+ALTER TABLE semantic_chunks ADD COLUMN IF NOT EXISTS char_end INTEGER;
 
 CREATE TABLE IF NOT EXISTS knowledge_links (
     id TEXT PRIMARY KEY,

@@ -1,15 +1,20 @@
 """CandidateExtractionPipeline — Phase 2 pipeline.
 
-Downloads a Cloudreve file (or uses pre-supplied bytes), parses it,
-classifies it, runs the LLM extractor, and stores the results as a
-*candidate* batch (never committed directly to Neo4j).
+Reads a file (local path, uploaded bytes, or Cloudreve URI), parses it,
+classifies it, runs the LLM extractor, persists file-level semantic metadata
+to the relational store, and saves the results as a *candidate* batch (never
+committed directly to Neo4j).
 Pi-Agent then reviews/edits/commits the candidates.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import mimetypes
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from knowledge_os.application.services import CandidateExtractionService
@@ -18,6 +23,7 @@ from knowledge_os.infrastructure.store import KnowledgeOSStore
 
 if TYPE_CHECKING:
     from core.cloudreve.client import CloudreveClient
+    from core.repositories.base import NexusRepository
     from core.services.content_parser import ContentParserService
     from core.services.document_classifier import DocumentClassifier
     from core.services.knowledge_extractor import KnowledgeExtractor
@@ -46,24 +52,34 @@ class ExtractionPipelineResult:
 
 
 class CandidateExtractionPipeline:
-    """Option-C pipeline: download → parse → classify → LLM → candidate batch.
+    """Option-C pipeline: read → parse → classify → LLM → candidate batch.
+
+    File source priority:
+    1. *content* bytes passed directly by the caller (uploaded file, pre-read).
+    2. local:// / file:// URI → read from local filesystem.
+    3. cloudreve:// URI → download via CloudreveClient (optional).
 
     Does NOT write to Neo4j.  Pi-Agent decides what to commit.
+    Immediately writes file-level semantic metadata to *repository*
+    (semantic_documents + semantic_chunks) so the relational store is
+    populated right after extraction, regardless of commit status.
     """
 
     def __init__(
         self,
-        cloudreve_client: CloudreveClient,
         content_parser: ContentParserService,
         classifier: DocumentClassifier,
         extractor: KnowledgeExtractor,
         store: KnowledgeOSStore,
+        repository: NexusRepository,
+        cloudreve_client: CloudreveClient | None = None,
     ) -> None:
         self.cloudreve_client = cloudreve_client
         self.content_parser = content_parser
         self.classifier = classifier
         self.extractor = extractor
         self.store = store
+        self.repository = repository
 
     def run(
         self,
@@ -81,14 +97,12 @@ class CandidateExtractionPipeline:
         Parameters
         ----------
         uri:
-            Source URI used for provenance. For Cloudreve files use
-            ``cloudreve://…``. For locally supplied content you may pass any
-            stable identifier such as ``local://my-report.md``.
+            Source URI used for provenance.
+            - ``cloudreve://…`` → download from Cloudreve (token required).
+            - ``local:///abs/path`` or ``file:///abs/path`` → read from disk.
+            - Any other scheme → must supply *content* directly.
         content:
-            Pre-fetched file bytes. When provided the Cloudreve download step
-            is skipped entirely, so *uri* does not need to be a reachable
-            Cloudreve path. This is the entry point for locally generated
-            reports and uploaded files.
+            Pre-fetched file bytes. When provided the fetch step is skipped.
         filename:
             Override for the filename used during parsing and gate-checks.
             Defaults to the last path component of *uri*.
@@ -103,18 +117,31 @@ class CandidateExtractionPipeline:
         if not gate.should_process:
             raise ExtractionInputError(f"File skipped by gate: {gate.reason}")
 
-        # Download — skip when the caller already supplied bytes
+        # ── Resolve content bytes ──────────────────────────────────────────────
         if content is None:
-            logger.info("Downloading %s", uri)
-            content = self.cloudreve_client.get_file_content_sync(uri)
+            if uri.startswith("local://") or uri.startswith("file://"):
+                content, filename = self._read_local(uri, filename)
+            elif uri.startswith("cloudreve://"):
+                if self.cloudreve_client is None:
+                    raise ExtractionInputError(
+                        "Cloudreve URI requested but no Cloudreve token is configured. "
+                        "Use a local:// URI or supply file content directly."
+                    )
+                logger.info("Downloading %s from Cloudreve", uri)
+                content = self.cloudreve_client.get_file_content_sync(uri)
+            else:
+                raise ExtractionInputError(
+                    f"Cannot fetch content for URI '{uri}'. "
+                    "Supply content directly or use a local:// / cloudreve:// URI."
+                )
         else:
             logger.info("Using pre-supplied content for %s (%d bytes)", uri, len(content))
 
-        # Parse
+        # ── Parse ─────────────────────────────────────────────────────────────
         logger.info("Parsing %s", filename)
         parsed = self.content_parser.parse(content, filename)
 
-        # Classify
+        # ── Classify ──────────────────────────────────────────────────────────
         classification = self.classifier.classify(
             filename=filename,
             content_preview=parsed.text[:600],
@@ -132,14 +159,60 @@ class CandidateExtractionPipeline:
         if instructions:
             extraction_text = f"[Extraction instructions: {instructions}]\n\n{parsed.text}"
 
-        # LLM extraction
+        # ── LLM extraction ────────────────────────────────────────────────────
         logger.info("LLM extraction for %s (strategy=%s)", uri, strategy)
         knowledge = self.extractor.extract(extraction_text, doc_type, strategy=strategy)
 
         if not knowledge.entities and not knowledge.relations:
             warnings.append("LLM returned no entities or relations; batch will be empty.")
 
-        # Convert ExtractedKnowledge → candidate items
+        # ── Persist semantic archive (relational store) ───────────────────────
+        source_type = "cloudreve" if uri.startswith("cloudreve://") else "local"
+        mime_type, _ = mimetypes.guess_type(filename)
+        content_hash = hashlib.sha256(content).hexdigest()
+        chunk_count = len(knowledge.segment_results)
+
+        try:
+            self.repository.upsert_document({
+                "uri": uri,
+                "summary": knowledge.summary,
+                "tags": knowledge.tags,
+                "entities": knowledge.entities,
+                "requested_by": requested_by,
+                "status": "active",
+                "content_hash": content_hash,
+                "filename": filename,
+                "source_type": source_type,
+                "mime_type": mime_type,
+                "size_bytes": len(content),
+                "doc_type": doc_type,
+                "chunk_count": chunk_count,
+            })
+
+            if knowledge.segment_results:
+                chunks = [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "chunk_index": seg.chunk_index,
+                        "text": seg.text,
+                        "summary": seg.summary,
+                        "tags": seg.tags,
+                        "entities": seg.entities,
+                        "char_start": seg.char_start,
+                        "char_end": seg.char_end,
+                    }
+                    for seg in knowledge.segment_results
+                ]
+                self.repository.replace_chunks(uri, chunks)
+
+            logger.info(
+                "Semantic archive persisted for %s: %d chunk(s)", uri, chunk_count
+            )
+        except Exception as exc:
+            warnings.append(f"Semantic archive write failed (non-fatal): {exc}")
+            logger.warning("Semantic archive write failed for %s: %s", uri, exc)
+
+        # ── Convert ExtractedKnowledge → candidate items ──────────────────────
         candidate_entities = [_entity_to_candidate(e) for e in knowledge.entities]
         candidate_relations = [_relation_to_candidate(r) for r in knowledge.relations]
 
@@ -168,6 +241,38 @@ class CandidateExtractionPipeline:
             relations_count=len(candidate_relations),
             warnings=warnings,
         )
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _read_local(uri: str, fallback_filename: str) -> tuple[bytes, str]:
+        """Read a ``local://`` or ``file://`` URI from the local filesystem.
+
+        URI formats accepted:
+        - ``local:///absolute/path/to/file.pdf``
+        - ``local://relative/path/to/file.pdf``  (relative to cwd)
+        - ``file:///absolute/path/to/file.pdf``
+        """
+        # Strip scheme prefix
+        if uri.startswith("local://"):
+            raw_path = uri[len("local://"):]
+        elif uri.startswith("file://"):
+            raw_path = uri[len("file://"):]
+        else:
+            raw_path = uri
+
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists():
+            raise ExtractionInputError(f"Local file not found: {path}")
+        if not path.is_file():
+            raise ExtractionInputError(f"Path is not a file: {path}")
+
+        logger.info("Reading local file %s", path)
+        content = path.read_bytes()
+        filename = path.name or fallback_filename
+        return content, filename
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +309,17 @@ def _relation_to_candidate(rel: dict[str, Any]) -> dict[str, Any]:
 def build_candidate_extraction_pipeline(
     settings: Settings,
     store: KnowledgeOSStore,
+    repository: Any | None = None,
 ) -> CandidateExtractionPipeline | None:
-    """Build a pipeline from settings.  Returns None if prerequisites are missing."""
+    """Build a pipeline from settings.  Returns None if LLM API key is missing.
+
+    Cloudreve is optional: the pipeline is built regardless of whether a
+    Cloudreve token is present.  Cloudreve downloads are only attempted when
+    a ``cloudreve://`` URI is requested at runtime.
+    """
     from core.cloudreve.client import CloudreveClient
     from core.cloudreve.oauth import CloudreveOAuthTokenStore
+    from core.repositories.memory import InMemoryRepository
     from core.services.content_parser import ContentParserService
     from core.services.document_classifier import DocumentClassifier
     from core.services.knowledge_extractor import KnowledgeExtractor
@@ -217,14 +329,25 @@ def build_candidate_extraction_pipeline(
         logger.warning("No LLM API key configured; CandidateExtractionPipeline unavailable.")
         return None
 
-    tokens = CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).load()
-    access_token = tokens.get("access_token") or settings.cloudreve_access_token
-    if not access_token:
-        logger.warning("No Cloudreve access token; CandidateExtractionPipeline unavailable.")
-        return None
+    # Cloudreve is optional — only wire it in when a token is available
+    cloudreve_client: CloudreveClient | None = None
+    try:
+        tokens = CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).load()
+        access_token = tokens.get("access_token") or settings.cloudreve_access_token
+        if access_token:
+            cloudreve_client = CloudreveClient(token=access_token)
+        else:
+            logger.info(
+                "No Cloudreve access token configured; Cloudreve downloads disabled. "
+                "Local file analysis remains fully available."
+            )
+    except Exception as exc:
+        logger.warning("Could not load Cloudreve token store: %s", exc)
+
+    # Fall back to an in-memory no-op repository when none is provided
+    repo = repository if repository is not None else InMemoryRepository()
 
     return CandidateExtractionPipeline(
-        cloudreve_client=CloudreveClient(token=access_token),
         content_parser=ContentParserService(),
         classifier=DocumentClassifier(),
         extractor=KnowledgeExtractor(
@@ -234,4 +357,6 @@ def build_candidate_extraction_pipeline(
             max_workers=settings.llm_max_workers,
         ),
         store=store,
+        repository=repo,
+        cloudreve_client=cloudreve_client,
     )
