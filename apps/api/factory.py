@@ -249,14 +249,16 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         answer = agent_ask(request.question, _graph_qa_agent)
         return {"question": request.question, "answer": answer}
 
-    # MinIO artifact store — persists full parsed text in object storage.
-    # Falls back to NullArtifactStore if MinIO is unreachable.
+    # Artifact store — persists full parsed text (MinIO or local filesystem).
+    # Falls back to LocalArtifactStore when MinIO is unreachable so
+    # parsed_text_key always resolves to a readable local:// URI.
     from core.storage.artifact_store import build_artifact_store
     _artifact_store = build_artifact_store(
         endpoint=app_settings.minio_endpoint,
         access_key=app_settings.minio_access_key,
         secret_key=app_settings.minio_secret_key,
         bucket=app_settings.minio_bucket,
+        local_dir=app_settings.artifact_local_dir,
     )
 
     # Build CandidateExtractionPipeline — lazy, returns None if prerequisites missing.

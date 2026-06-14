@@ -47,6 +47,10 @@ class Settings:
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "knowledge-nexus"
+    # Local directory used as the artifact fallback when MinIO is unavailable.
+    # Full parsed text is written here so parsed_text_key is always a local://
+    # URI (never a cloudreve:// provenance pointer).
+    artifact_local_dir: str = "data/artifacts"
     openai_api_key: str | None = None
     zhipu_api_key: str | None = None
     llm_provider: str = "zhipu"
@@ -103,6 +107,7 @@ class Settings:
             minio_access_key=env("MINIO_ACCESS_KEY", cls.minio_access_key) or cls.minio_access_key,
             minio_secret_key=env("MINIO_SECRET_KEY", cls.minio_secret_key) or cls.minio_secret_key,
             minio_bucket=env("MINIO_BUCKET", cls.minio_bucket) or cls.minio_bucket,
+            artifact_local_dir=env("ARTIFACT_LOCAL_DIR", cls.artifact_local_dir) or cls.artifact_local_dir,
             openai_api_key=env("OPENAI_API_KEY") or None,
             zhipu_api_key=env("ZHIPU_API_KEY") or env("BIGMODEL_API_KEY") or None,
             llm_provider=env("LLM_PROVIDER", cls.llm_provider) or cls.llm_provider,

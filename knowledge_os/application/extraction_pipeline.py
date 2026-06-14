@@ -215,8 +215,9 @@ class CandidateExtractionPipeline:
                 "size_bytes": len(content),
                 "doc_type": doc_type,
                 "chunk_count": chunk_count,
-                # s3:// URI when MinIO is available; otherwise fall back to the
-                # source URI so the pointer is always populated.
+                # s3:// URI when MinIO is available; local:// when the
+                # LocalArtifactStore fallback was used; source URI only as a
+                # last resort (e.g. if both writes failed due to disk issues).
                 "parsed_text_key": parsed_text_key or uri,
             })
 
