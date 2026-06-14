@@ -59,17 +59,6 @@ services:
       - neo4j
       - qdrant
 
-  nexus-worker:
-    build:
-      context: ../..
-      dockerfile: apps/api/Dockerfile
-    command: ["python", "-m", "nexus.worker"]
-    environment:
-      CLOUDREVE_BASE_URL: http://cloudreve:5212
-    depends_on:
-      - cloudreve
-      - redis
-
   nexus-web:
     build:
       context: ../..

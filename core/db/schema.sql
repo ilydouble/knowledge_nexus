@@ -1,23 +1,3 @@
-CREATE TABLE IF NOT EXISTS ingestion_jobs (
-    id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL DEFAULT 'default',
-    uri TEXT NOT NULL,
-    requested_by TEXT NOT NULL,
-    status TEXT NOT NULL,
-    stage TEXT NOT NULL DEFAULT 'queued',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL,
-    started_at TIMESTAMPTZ,
-    finished_at TIMESTAMPTZ,
-    error_code TEXT,
-    error TEXT
-);
-
-ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'queued';
-ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
-ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
-ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS error_code TEXT;
-
 CREATE TABLE IF NOT EXISTS semantic_documents (
     uri TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL DEFAULT 'default',
@@ -69,7 +49,6 @@ CREATE TABLE IF NOT EXISTS knowledge_links (
     created_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_uri ON ingestion_jobs(uri);
 CREATE INDEX IF NOT EXISTS idx_semantic_chunks_document_uri ON semantic_chunks(document_uri);
 CREATE INDEX IF NOT EXISTS idx_knowledge_links_source_uri ON knowledge_links(source_uri);
 CREATE INDEX IF NOT EXISTS idx_knowledge_links_target_uri ON knowledge_links(target_uri);

@@ -2,7 +2,7 @@
 """cloudreve-io CLI — thin HTTP client for Knowledge OS drive operations.
 
 Manages the *file-source* side of the pipeline: authorization, file listing,
-metadata, download to a local temp file, full scan, and OAuth config.
+metadata, download to a local temp file, file discovery, and OAuth config.
 
 Stdlib only. Set KN_API_URL to override the default http://localhost:8000.
 
@@ -229,8 +229,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fail if the file already exists instead of overwriting")
     ul.set_defaults(fn=cmd_upload)
 
-    sub.add_parser("scan", help="trigger a full recursive Cloudreve scan").set_defaults(fn=cmd_scan)
-    sub.add_parser("scan-status", help="last scan result / progress").set_defaults(fn=cmd_scan_status)
+    sub.add_parser("scan", help="trigger recursive Cloudreve file discovery").set_defaults(fn=cmd_scan)
+    sub.add_parser("scan-status", help="last discovery result / progress").set_defaults(fn=cmd_scan_status)
     return p
 
 

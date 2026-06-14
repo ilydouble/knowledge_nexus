@@ -1,6 +1,6 @@
 ---
 name: cloudreve-io
-description: Use to manage the Cloudreve file source feeding Knowledge OS — check authorization, configure OAuth credentials, list/browse files, get file metadata, download a file to a local temp path, trigger a full drive scan, and poll scan progress. Trigger when the user uploads files, asks why a file is missing, wants to browse the drive, needs a local copy of a file for analysis, or wants to configure/check the Cloudreve connection. This skill never writes to the knowledge graph (use knowledge-os for extract → review → commit).
+description: Use to manage the Cloudreve file source feeding Knowledge OS — check authorization, configure OAuth credentials, list/browse files, get file metadata, download a file to a local temp path, trigger file discovery, and poll discovery progress. Trigger when the user uploads files, asks why a file is missing, wants to browse the drive, needs a local copy of a file for analysis, or wants to configure/check the Cloudreve connection. This skill never writes to the knowledge graph (use knowledge-os for extract → review → commit).
 ---
 
 # Cloudreve IO
@@ -72,14 +72,15 @@ python3 cloudreve download cloudreve://my/campus/sensors.csv
 python3 cloudreve download cloudreve://my/campus/sensors.csv --out /tmp/sensors.csv
 ```
 
-### Discover new files (full scan)
+### Discover files
 
 ```bash
-python3 cloudreve scan           # trigger background scan
+python3 cloudreve scan           # trigger Cloudreve file discovery
 python3 cloudreve scan-status    # poll until is_scanning = false
 ```
 
-Once scan completes, the files' `cloudreve://` URIs can be used by `knowledge-os`.
+Once discovery completes, the returned `cloudreve://` URIs can be used by
+`knowledge-os`. Discovery does not auto-extract or commit knowledge.
 
 ## Command reference
 
@@ -92,8 +93,8 @@ Once scan completes, the files' `cloudreve://` URIs can be used by `knowledge-os
 | `info <URI>` | metadata for a single file or directory |
 | `download <URI> [--out PATH]` | download file; prints local path |
 | `upload <PATH> --dest <URI>` | upload local file to a Cloudreve folder (requires Files.Write scope) |
-| `scan` | trigger a full recursive scan (background task) |
-| `scan-status` | last scan result / progress + `is_scanning` flag |
+| `scan` | trigger recursive Cloudreve file discovery |
+| `scan-status` | last discovery result / progress + `is_scanning` flag |
 
 ## Safety rules
 

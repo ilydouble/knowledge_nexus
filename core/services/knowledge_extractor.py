@@ -212,7 +212,7 @@ class KnowledgeExtractor:
             base_url: LLM chat-completions endpoint.
             http_client: Injected HTTP client (for testing).
             timeout: Per-request timeout seconds.
-            max_workers: Parallel segment workers for map-reduce.
+            max_workers: Parallel segment tasks for map-reduce.
             two_stage_extraction: When True, map-reduce uses two LLM rounds
                 (nodes first, then edges with node context) for higher relation
                 accuracy.  Doubles LLM calls but improves precision.
@@ -431,7 +431,7 @@ Rules:
         seg_tuples = self._split_text(text)
         segments = [s for s, _, _ in seg_tuples]
         logger.info(
-            "Map-reduce: %d segments × ~%d chars (workers=%d, two_stage=%s)",
+            "Map-reduce: %d segments × ~%d chars (parallel=%d, two_stage=%s)",
             len(segments), _SEGMENT_SIZE, self.max_workers, self.two_stage_extraction,
         )
 

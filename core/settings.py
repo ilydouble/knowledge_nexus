@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import uuid
 
 
 def _read_dotenv(path: str = ".env") -> dict[str, str]:
@@ -30,7 +29,6 @@ class Settings:
     cloudreve_token: str | None = None
     cloudreve_access_token: str | None = None
     cloudreve_refresh_token: str | None = None
-    cloudreve_client_id: str = str(uuid.uuid5(uuid.NAMESPACE_URL, "knowledge-nexus-worker"))
     cloudreve_oauth_client_id: str | None = None
     cloudreve_oauth_client_secret: str | None = None
     cloudreve_oauth_redirect_uri: str = "http://localhost:8000/api/auth/cloudreve/callback"
@@ -53,7 +51,7 @@ class Settings:
     llm_provider: str = "zhipu"
     llm_model: str = "glm-4.7"
     llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-    # Number of parallel LLM workers during map-reduce extraction.
+    # Number of parallel LLM requests during map-reduce extraction.
     # Set to 1 to disable concurrency and avoid rate-limit errors.
     llm_max_workers: int = 1
     # Embedding settings (BigModel embedding-3)
@@ -61,10 +59,6 @@ class Settings:
     embedding_dimensions: int = 2048
     embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4/embeddings"
     nexus_storage_backend: str = "memory"
-    # When False, the worker stops all automatic discovery loops (SSE listener,
-    # periodic Cloudreve scan, and pending-job extraction). A cleared graph then
-    # stays empty until the user explicitly extracts/commits again.
-    enable_periodic_sync: bool = True
     hyper_extract_runtime_enabled: bool = False
     hyper_extract_runtime_max_templates: int = 1
 
@@ -87,7 +81,6 @@ class Settings:
             cloudreve_token=cloudreve_access_token,
             cloudreve_access_token=cloudreve_access_token,
             cloudreve_refresh_token=cloudreve_refresh_token,
-            cloudreve_client_id=env("CLOUDREVE_CLIENT_ID", cls.cloudreve_client_id) or cls.cloudreve_client_id,
             cloudreve_oauth_client_id=env("CLOUDREVE_OAUTH_CLIENT_ID") or None,
             cloudreve_oauth_client_secret=env("CLOUDREVE_OAUTH_CLIENT_SECRET") or None,
             cloudreve_oauth_redirect_uri=env("CLOUDREVE_OAUTH_REDIRECT_URI", cls.cloudreve_oauth_redirect_uri)
@@ -118,7 +111,6 @@ class Settings:
             embedding_dimensions=int(env("EMBEDDING_DIMENSIONS", str(cls.embedding_dimensions)) or str(cls.embedding_dimensions)),
             embedding_base_url=env("EMBEDDING_BASE_URL", cls.embedding_base_url) or cls.embedding_base_url,
             nexus_storage_backend=env("NEXUS_STORAGE_BACKEND", cls.nexus_storage_backend) or cls.nexus_storage_backend,
-            enable_periodic_sync=env_bool("ENABLE_PERIODIC_SYNC", cls.enable_periodic_sync),
             hyper_extract_runtime_enabled=env_bool(
                 "HYPER_EXTRACT_RUNTIME_ENABLED",
                 cls.hyper_extract_runtime_enabled,

@@ -14,20 +14,6 @@ class KnowledgeLayer(StrEnum):
     L3 = "L3"
 
 
-class IngestionJob(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    uri: str
-    requested_by: str
-    status: str = "pending"
-    stage: str = "queued"
-    attempts: int = 0
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
-    error_code: str | None = None
-    error: str | None = None
-
-
 class KnowledgeLink(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     source_uri: str
@@ -68,6 +54,5 @@ class GraphResult(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     hidden_node_count: int = 0
-
 
 

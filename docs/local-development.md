@@ -59,7 +59,6 @@ docker compose -f infrastructure/docker/docker-compose.yml up --build
 默认启动：
 
 - `nexus-api`
-- `nexus-worker`
 - `nexus-web`
 
 默认 Compose 会接入外部 `kg-network`。如果本机没有 `kg-network`，先启动已有知识图谱基础设施，或使用 `infrastructure/docker/docker-compose.full.yml` 作为新机器全量参考。

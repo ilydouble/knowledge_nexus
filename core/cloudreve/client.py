@@ -69,7 +69,7 @@ class CloudreveClient:
                 f"{message} The events stream usually needs a valid Cloudreve API bearer token. "
                 "It also expects X-Cr-Client-Id to be a UUID. "
                 "If CLOUDREVE_TOKEN came from /api/v4/session/authn, that value is only a WebAuthn "
-                "challenge and cannot authenticate the worker."
+                "challenge and cannot authenticate the events stream."
             )
         raise CloudreveError(code=status_code, message=message)
 
@@ -102,8 +102,8 @@ class CloudreveClient:
         via /api/auth/cloudreve/start.
         """
         settings = Settings.from_env()
-        # Always reload the latest refresh token from the file – the worker
-        # process may have started with a stale in-memory token that has since
+        # Always reload the latest refresh token from the file – this process
+        # may have started with a stale in-memory token that has since
         # been rotated by another process (e.g. a test script or the API server).
         stored = CloudreveOAuthTokenStore(settings.cloudreve_token_store_path).load()
         fresh_rt = stored.get("refresh_token") or self.refresh_token

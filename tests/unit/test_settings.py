@@ -1,4 +1,3 @@
-import uuid
 from pathlib import Path
 
 from core.settings import Settings
@@ -53,23 +52,13 @@ def test_settings_class_default_vector_backend_is_milvus():
     assert settings.vector_backend == "milvus"
 
 
-def test_settings_default_cloudreve_client_id(monkeypatch):
-    monkeypatch.delenv("CLOUDREVE_CLIENT_ID", raising=False)
-
-    settings = Settings.from_env()
-
-    assert str(uuid.UUID(settings.cloudreve_client_id)) == settings.cloudreve_client_id
-
-
 def test_settings_loads_values_from_dotenv_file(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("CLOUDREVE_BASE_URL", raising=False)
     monkeypatch.delenv("CLOUDREVE_TOKEN", raising=False)
-    monkeypatch.delenv("CLOUDREVE_CLIENT_ID", raising=False)
     Path(tmp_path / ".env").write_text(
         "CLOUDREVE_BASE_URL=http://localhost:5212\n"
-        "CLOUDREVE_TOKEN=test-token\n"
-        "CLOUDREVE_CLIENT_ID=test-client\n",
+        "CLOUDREVE_TOKEN=test-token\n",
         encoding="utf-8",
     )
 
@@ -77,7 +66,6 @@ def test_settings_loads_values_from_dotenv_file(monkeypatch, tmp_path):
 
     assert settings.cloudreve_base_url == "http://localhost:5212"
     assert settings.cloudreve_token == "test-token"
-    assert settings.cloudreve_client_id == "test-client"
 
 
 def test_settings_loads_cloudreve_refresh_token(monkeypatch):
@@ -104,24 +92,6 @@ def test_settings_loads_cloudreve_oauth_settings(monkeypatch):
     assert settings.cloudreve_oauth_redirect_uri == "http://localhost:8000/api/auth/cloudreve/callback"
     assert settings.cloudreve_oauth_scope == "openid profile offline_access Files.Read"
     assert settings.cloudreve_token_store_path == "data/runtime/tokens.json"
-
-
-def test_settings_periodic_sync_defaults_enabled(monkeypatch, tmp_path):
-    # chdir to an empty dir so the repo's .env does not mask the dataclass default.
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("ENABLE_PERIODIC_SYNC", raising=False)
-
-    settings = Settings.from_env()
-
-    assert settings.enable_periodic_sync is True
-
-
-def test_settings_periodic_sync_disabled_via_env(monkeypatch):
-    monkeypatch.setenv("ENABLE_PERIODIC_SYNC", "false")
-
-    settings = Settings.from_env()
-
-    assert settings.enable_periodic_sync is False
 
 
 def test_settings_loads_cloudreve_oauth_config_path(monkeypatch):

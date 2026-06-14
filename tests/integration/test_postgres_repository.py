@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from core.models import IngestionJob, KnowledgeLayer, KnowledgeLink
+from core.models import KnowledgeLayer, KnowledgeLink
 from core.repositories.postgres import PostgresRepository, initialize_postgres_schema
 from core.settings import Settings
 
@@ -10,7 +10,7 @@ from core.settings import Settings
 pytestmark = pytest.mark.skipif(os.getenv("RUN_INTEGRATION") != "1", reason="set RUN_INTEGRATION=1 to run Postgres integration tests")
 
 
-def test_postgres_repository_persists_jobs_and_links():
+def test_postgres_repository_persists_links():
     settings = Settings.from_env()
     initialize_postgres_schema(settings.database_url)
     repository = PostgresRepository(settings.database_url)
@@ -19,10 +19,6 @@ def test_postgres_repository_persists_jobs_and_links():
 
     repository.delete_by_uri_for_tests(unique_uri)
     repository.delete_by_uri_for_tests(target_uri)
-
-    job = repository.add_job(IngestionJob(uri=unique_uri, requested_by="integration-user"))
-    assert repository.get_job(job.id) == job
-    assert any(j.uri == unique_uri for j in repository.list_jobs())
 
     link = repository.add_link(
         KnowledgeLink(
@@ -40,4 +36,3 @@ def test_postgres_repository_persists_jobs_and_links():
 
     repository.delete_by_uri_for_tests(unique_uri)
     repository.delete_by_uri_for_tests(target_uri)
-

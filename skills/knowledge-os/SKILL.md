@@ -57,7 +57,7 @@ until a batch is **committed**. The normal sequence:
 ## Governance (use with care)
 
 Soft governance — these only affect Postgres metadata; they do **not**
-physically wipe Neo4j nodes unless a re-scan runs:
+physically wipe Neo4j nodes:
 
 - `python3 kn stale` — report stale/purged evidence grouped by source.
 - `python3 kn mark-deleted "<uri>"` — mark a source removed, stale its evidence.

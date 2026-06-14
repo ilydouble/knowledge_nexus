@@ -61,13 +61,7 @@ cd apps/web && npm run dev
 # → http://localhost:5173
 ```
 
-**③ Worker（Cloudreve 事件监听 + 定时扫描）**
-
-```bash
-python -m apps.worker.main
-```
-
-**④ MCP Server（供 Claude Code 等原生 MCP 客户端接入）**
+**③ MCP Server（供 Claude Code 等原生 MCP 客户端接入）**
 
 ```bash
 python -m apps.mcp.server
@@ -95,14 +89,12 @@ Claude Code 配置（`~/.claude/claude_desktop_config.json`）：
 
 ```
 Cloudreve（文件存储）
-    ↓ SSE 事件 / 周期扫描
-apps/worker/main.py
+    ↓ API / MCP / Pi-Agent 显式触发
+knowledge_os/application/extraction_pipeline.py
     ↓ FileGate（格式过滤）
     ↓ ContentParser（PDF / DOCX / Excel / TXT / MD）
-    ↓ DocumentClassifier（7 类自动分类）
+    ↓ DocumentClassifier（自动分类）
     ↓ KnowledgeExtractor（本体模板 + LLM + Map-Reduce）
-    ↓
-knowledge_os/application/extraction_pipeline.py
     → 候选批次（Postgres candidate_batches / candidate_items）
     ↓ 人工 / Pi-Agent 审核
 knowledge_os/application/services.py  GraphCommitService.commit()
@@ -127,15 +119,14 @@ knowledge_nexus/
 │   ├── cloudreve/         (OAuth 客户端)
 │   ├── graph/             (Neo4j 驱动封装)
 │   ├── vector/            (Milvus 驱动封装)
-│   ├── repositories/      (NexusRepository：jobs + links；memory / postgres)
+│   ├── repositories/      (NexusRepository：semantic docs + chunks + links)
 │   ├── services/          (file_gate, scanner, embedding, content_parser,
 │   │                       document_classifier, knowledge_extractor, template_adapter)
 │   ├── agents/            (graph_qa_agent, classifier_agent)
-│   ├── models.py          (IngestionJob, KnowledgeLink, KnowledgeLayer…)
+│   ├── models.py          (KnowledgeLink, KnowledgeLayer, GraphNode…)
 │   └── settings.py
 ├── apps/
 │   ├── api/               (factory.py: create_application(), main.py: FastAPI 入口)
-│   ├── worker/            (main.py: Worker，三循环：SSE + 扫描 + 批处理)
 │   ├── mcp/               (server.py: MCP Server 入口)
 │   └── web/               (React 前端：仪表盘 / 候选审核 / 图谱 / 问答 / Cloudreve)
 ├── data/
@@ -197,14 +188,14 @@ bulk_review_batch(batch_id, action="accept")
 | `POST /api/graph/ask` | 图谱自然语言问答（Agent3） |
 | `GET  /api/auth/cloudreve/status` | Cloudreve OAuth 授权状态 |
 | `GET  /api/auth/cloudreve/start` | 发起 OAuth 授权跳转 |
-| `GET  /api/cloudreve/scan/status` | 扫描状态 |
-| `POST /api/cloudreve/scan` | 触发全量文件扫描 |
+| `GET  /api/cloudreve/scan/status` | Cloudreve 文件发现状态 |
+| `POST /api/cloudreve/scan` | 触发全量文件发现（不自动抽取） |
 
 ---
 
 ## 语义处理管道
 
-### 文档分类（7 种类型）
+### 文档分类
 
 | 类型 | 触发条件 | 提取策略 |
 |---|---|---|
@@ -229,7 +220,7 @@ bulk_review_batch(batch_id, action="accept")
 ### 向量嵌入（可选）
 
 ```bash
-VECTOR_BACKEND=milvus   # 重启 API + Worker 生效（默认 none）
+VECTOR_BACKEND=milvus   # 重启 API 生效
 ```
 
 ---
@@ -251,11 +242,10 @@ RUN_INTEGRATION=1 python -m pytest tests/integration/test_neo4j_store.py
 
 | 模块 | 状态 |
 |---|---|
-| Cloudreve OAuth + SSE 事件监听 | ✅ |
-| 周期全盘扫描（每 10 分钟）+ 批处理队列 | ✅ |
+| Cloudreve OAuth + 文件浏览 / 手动扫描 | ✅ |
 | FileGate 格式过滤 | ✅ |
 | 内容解析（PDF / DOCX / Excel / TXT / MD） | ✅ |
-| 文档自动分类（7 类） | ✅ |
+| 文档自动分类 | ✅ |
 | 本体模板知识图谱提取（LLM + Map-Reduce） | ✅ |
 | **候选抽取 → 审核 → 预览 → 入库工作流** | ✅ |
 | Neo4j 图谱存储（幂等 MERGE） | ✅ |
@@ -266,4 +256,3 @@ RUN_INTEGRATION=1 python -m pytest tests/integration/test_neo4j_store.py
 | 治理服务（dashboard、陈旧报告） | ✅ |
 | 向量嵌入（BigModel embedding-3，可选） | ✅ 按需开启 |
 | Web 控制台（仪表盘 / 候选审核 / 图谱 / 问答 / Cloudreve） | ✅ |
-

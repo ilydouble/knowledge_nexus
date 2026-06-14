@@ -48,8 +48,8 @@ from core.settings import Settings
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Bootstrap — use the same store resolution as the API and Worker so that
-# Pi-Agent sees candidate batches created by either process.
+# Bootstrap — use the same store resolution as the API so Pi-Agent sees
+# candidate batches created through REST or MCP.
 # ---------------------------------------------------------------------------
 
 settings = Settings.from_env()

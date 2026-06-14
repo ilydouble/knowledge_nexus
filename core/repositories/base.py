@@ -2,18 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from core.models import IngestionJob, KnowledgeLink
+from core.models import KnowledgeLink
 
 
 class NexusRepository(Protocol):
-    def add_job(self, job: IngestionJob) -> IngestionJob: ...
-
-    def get_job(self, job_id: str) -> IngestionJob | None: ...
-
-    def update_job(self, job: IngestionJob) -> IngestionJob: ...
-
-    def list_jobs(self) -> list[IngestionJob]: ...
-
     def add_link(self, link: KnowledgeLink) -> KnowledgeLink: ...
 
     def list_links(self) -> list[KnowledgeLink]: ...

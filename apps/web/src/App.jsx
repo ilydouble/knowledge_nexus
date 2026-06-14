@@ -107,7 +107,7 @@ function DashboardTab() {
             </div>
             {scan.files_found != null && (
               <div className="sp-sub">
-                发现 {scan.files_found} 个文件，新增 {scan.files_queued ?? 0} 个
+                发现 {scan.files_found} 个文件
               </div>
             )}
             {scan.error && <div className="sp-sub">{scan.error}</div>}

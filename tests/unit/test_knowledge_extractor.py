@@ -250,7 +250,7 @@ def test_mapreduce_preserves_cross_segment_relations():
 
     class SequentialFakeClient:
         """Returns different payloads per call (thread-safe via list.pop is not
-        order-safe under concurrency, so use a fixed single-worker extractor)."""
+        order-safe under concurrency, so use a fixed single-thread extractor)."""
         def __init__(self):
             self._lock = concurrent.futures.ThreadPoolExecutor  # unused, just label
             self._calls = 0

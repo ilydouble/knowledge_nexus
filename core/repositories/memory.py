@@ -3,29 +3,14 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from core.models import IngestionJob, KnowledgeLink
+from core.models import KnowledgeLink
 
 
 class InMemoryRepository:
     def __init__(self) -> None:
-        self.jobs: dict[str, IngestionJob] = {}
         self.links: dict[str, KnowledgeLink] = {}
         self._documents: dict[str, dict[str, Any]] = {}
         self._chunks: dict[str, list[dict[str, Any]]] = {}  # uri → chunk list
-
-    def add_job(self, job: IngestionJob) -> IngestionJob:
-        self.jobs[job.id] = job
-        return job
-
-    def get_job(self, job_id: str) -> IngestionJob | None:
-        return self.jobs.get(job_id)
-
-    def update_job(self, job: IngestionJob) -> IngestionJob:
-        self.jobs[job.id] = job
-        return job
-
-    def list_jobs(self) -> list[IngestionJob]:
-        return sorted(self.jobs.values(), key=lambda job: job.created_at, reverse=True)
 
     def add_link(self, link: KnowledgeLink) -> KnowledgeLink:
         self.links[link.id] = link
