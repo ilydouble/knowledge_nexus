@@ -95,13 +95,17 @@ _EMERGENCY_FALLBACK_ONTOLOGY: dict[str, Any] = {
 # Map-Reduce thresholds
 # ---------------------------------------------------------------------------
 #: Characters fed to the LLM in single-pass mode.
-_SINGLE_PASS_LIMIT: int = 12_000
+#: Raised from 12 000 → 16 000 so that documents up to ~16 KB are handled
+#: in a single LLM call (avoids 3+ serial calls for modest-sized files).
+_SINGLE_PASS_LIMIT: int = 16_000
 #: Character budget per segment in map-reduce mode.
 _SEGMENT_SIZE: int = 8_000
 #: Overlap between adjacent segments to preserve context across boundaries.
 _SEGMENT_OVERLAP: int = 400
 #: Documents longer than this switch from single-pass to map-reduce.
-_MAP_REDUCE_THRESHOLD: int = 10_000
+#: Raised from 10 000 → 16 000 to match _SINGLE_PASS_LIMIT so documents
+#: below 16 KB never trigger the multi-call map-reduce path.
+_MAP_REDUCE_THRESHOLD: int = 16_000
 #: Minimum entity confidence score; lower entries are dropped during merge.
 MIN_ENTITY_CONFIDENCE: float = 0.5
 
