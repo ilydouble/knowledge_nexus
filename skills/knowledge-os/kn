@@ -21,6 +21,13 @@ import uuid
 
 BASE = os.environ.get("KN_API_URL", "http://localhost:8000").rstrip("/")
 
+# Disable system-level HTTP proxy for all requests.
+# kn always talks to a local server; proxies (e.g. Clash on :7897) intercept
+# urllib connections and return 502 when they refuse to forward loopback traffic.
+urllib.request.install_opener(
+    urllib.request.build_opener(urllib.request.ProxyHandler({}))
+)
+
 
 def _req(method: str, path: str, body=None, query=None):
     url = BASE + path
