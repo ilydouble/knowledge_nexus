@@ -189,7 +189,9 @@ class CandidateExtractionPipeline:
 
         # ── LLM extraction ────────────────────────────────────────────────────
         logger.info("LLM extraction for %s (strategy=%s)", uri, strategy)
-        knowledge = self.extractor.extract(extraction_text, doc_type, strategy=strategy)
+        knowledge = self.extractor.extract(
+            extraction_text, doc_type, strategy=strategy, filename=filename
+        )
 
         if not knowledge.entities and not knowledge.relations:
             warnings.append("LLM returned no entities or relations; batch will be empty.")

@@ -159,6 +159,91 @@ def cmd_extract_path(a):
     _out(_req("POST", "/api/admin/candidates/extract/path", body=body))
 
 
+def cmd_ingest(a):
+    """One-shot: extract-file → accept-all → commit (optionally print preview)."""
+    path = a.path
+    if not os.path.isfile(path):
+        sys.exit(f"File not found: {path}")
+
+    filename = os.path.basename(path)
+    source_uri = a.source_uri or f"local://{filename}"
+
+    with open(path, "rb") as fh:
+        file_bytes = fh.read()
+
+    # ── Step 1: extract ───────────────────────────────────────────────────────
+    boundary = uuid.uuid4().hex
+    ctype = f"multipart/form-data; boundary={boundary}"
+
+    def _part(name: str, value: str) -> bytes:
+        return (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode()
+
+    body_parts: list[bytes] = []
+    body_parts.append(
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n".encode()
+        + file_bytes
+        + b"\r\n"
+    )
+    body_parts.append(_part("source_uri", source_uri))
+    body_parts.append(_part("requested_by", a.requested_by))
+    if a.instructions:
+        body_parts.append(_part("instructions", a.instructions))
+    body_parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(body_parts)
+
+    parsed_url = urllib.parse.urlparse(BASE)
+    host = parsed_url.hostname or "localhost"
+    port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
+    conn_cls = http.client.HTTPSConnection if parsed_url.scheme == "https" else http.client.HTTPConnection
+    conn = conn_cls(host, port, timeout=300)
+    try:
+        conn.request(
+            "POST",
+            "/api/admin/candidates/extract/file",
+            body=body,
+            headers={"Content-Type": ctype, "Content-Length": str(len(body))},
+        )
+        resp = conn.getresponse()
+        raw = resp.read().decode()
+        if resp.status not in (200, 201):
+            sys.exit(f"HTTP {resp.status}: {raw}")
+        extract_result = json.loads(raw or "{}")
+    except OSError as exc:
+        sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc})")
+    finally:
+        conn.close()
+
+    batch_id = (extract_result.get("batch") or {}).get("id") or extract_result.get("batch_id")
+    if not batch_id:
+        print("Extraction result (no batch_id found, cannot auto-commit):")
+        _out(extract_result)
+        return
+
+    print(f"[ingest] Extracted → batch_id={batch_id}")
+    print(f"[ingest] Entities: {extract_result.get('entities_count', '?')}, "
+          f"Relations: {extract_result.get('relations_count', '?')}")
+
+    # ── Step 2: optional preview ──────────────────────────────────────────────
+    if a.review:
+        print("\n[ingest] Preview (dry-run):")
+        _out(_req("POST", f"/api/admin/candidates/{batch_id}/preview"))
+
+    # ── Step 3: accept-all ────────────────────────────────────────────────────
+    _req("POST", f"/api/admin/candidates/{batch_id}/accept-all")
+    print(f"[ingest] Accepted all items in batch {batch_id}")
+
+    # ── Step 4: commit ────────────────────────────────────────────────────────
+    commit_result = _req("POST", f"/api/admin/candidates/{batch_id}/commit")
+    print(f"[ingest] Committed to graph ✓")
+    _out(commit_result)
+
+
 def cmd_accept_all(a):
     _out(_req("POST", f"/api/admin/candidates/{a.batch_id}/accept-all"))
 
@@ -234,6 +319,14 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("uri"); e.add_argument("--instructions")
     e.add_argument("--requested-by", dest="requested_by", default="pi-agent")
     e.add_argument("--template", action="append"); e.set_defaults(fn=cmd_extract)
+
+    ig = sub.add_parser("ingest", help="one-shot: extract-file + accept-all + commit (auto-ingest a local file)")
+    ig.add_argument("path", help="local file path (text, markdown, CSV, PDF, DOCX, Excel)")
+    ig.add_argument("--source-uri", dest="source_uri", help="provenance URI (default: local://<filename>)")
+    ig.add_argument("--instructions")
+    ig.add_argument("--review", action="store_true", help="print graph preview before committing")
+    ig.add_argument("--requested-by", dest="requested_by", default="pi-agent")
+    ig.set_defaults(fn=cmd_ingest)
 
     ef = sub.add_parser("extract-file", help="extract candidates from a local file (no Cloudreve needed)")
     ef.add_argument("path", help="local file path (text, markdown, CSV, PDF, DOCX, Excel)")
