@@ -73,8 +73,14 @@ services:
       MILVUS_HOST: milvus
       MILVUS_PORT: "19530"
       VECTOR_BACKEND: milvus
+      # When MinIO is unavailable the LocalArtifactStore writes here.
+      # This path is inside the mounted nexus_artifacts volume so artifacts
+      # survive container rebuilds.
+      ARTIFACT_LOCAL_DIR: /app/data/artifacts
     ports:
       - "8000:8000"
+    volumes:
+      - nexus_artifacts:/app/data/artifacts
     depends_on:
       - cloudreve
       - postgres
@@ -101,3 +107,5 @@ volumes:
   neo4j_data:
   minio_data:
   milvus_data:
+  # Persists LocalArtifactStore fallback files across container rebuilds.
+  nexus_artifacts:

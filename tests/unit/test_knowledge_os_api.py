@@ -246,3 +246,36 @@ def test_delete_graph_cleans_minio_artifact_when_s3_key():
     assert response.status_code == 200
     artifact.delete.assert_called_once_with(s3_key)
     assert response.json()["artifact"] == "deleted"
+
+
+def test_delete_graph_cleans_local_artifact_when_local_key():
+    """Hard delete should call artifact_store.delete when parsed_text_key is local://."""
+    neo4j = MagicMock()
+    artifact = MagicMock()
+    uri = "local:///docs/report.pdf"
+    local_key = "local:///app/data/artifacts/parsed-text/abcd1234/report.pdf.txt"
+    repo = _MockRepo({uri: {"parsed_text_key": local_key}})
+    client = make_direct_client(neo4j_store=neo4j, artifact_store=artifact, repository=repo)
+
+    encoded = quote(uri, safe="")
+    response = client.delete(f"/api/admin/documents/{encoded}/graph")
+
+    assert response.status_code == 200
+    artifact.delete.assert_called_once_with(local_key)
+    assert response.json()["artifact"] == "deleted"
+
+
+def test_delete_graph_artifact_skipped_when_no_artifact_key():
+    """When parsed_text_key is absent, artifact delete should be skipped cleanly."""
+    neo4j = MagicMock()
+    artifact = MagicMock()
+    uri = "local:///docs/report.pdf"
+    repo = _MockRepo({uri: {"parsed_text_key": None}})
+    client = make_direct_client(neo4j_store=neo4j, artifact_store=artifact, repository=repo)
+
+    encoded = quote(uri, safe="")
+    response = client.delete(f"/api/admin/documents/{encoded}/graph")
+
+    assert response.status_code == 200
+    artifact.delete.assert_not_called()
+    assert "skipped" in response.json()["artifact"]

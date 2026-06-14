@@ -75,9 +75,16 @@ class LocalArtifactStore:
         self._base_dir = os.path.abspath(base_dir)
 
     def write(self, content_hash: str, filename: str, text: str) -> str:
-        """Write *text* to the local filesystem and return a ``local://`` URI."""
+        """Write *text* to the local filesystem and return a ``local://`` URI.
+
+        The *filename* is sanitised with ``Path(...).name`` before it is
+        embedded in the path so that values like ``../../etc/passwd`` or
+        ``subdir/evil.txt`` cannot escape *base_dir*.
+        """
         import os
-        rel_key = f"{_PREFIX}/{content_hash[:16]}/{filename}.txt"
+        from pathlib import Path as _Path
+        safe_name = _Path(filename).name or "artifact"
+        rel_key = f"{_PREFIX}/{content_hash[:16]}/{safe_name}.txt"
         abs_path = os.path.join(self._base_dir, rel_key)
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
         with open(abs_path, "w", encoding="utf-8") as fh:

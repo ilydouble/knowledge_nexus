@@ -336,12 +336,13 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
                 repo.delete_document(uri)
             except Exception as exc:
                 _del_logger.warning("Repo delete failed for %s: %s", uri, exc)
-            # Delete full-text artifact from MinIO (non-fatal).
-            if parsed_text_key and parsed_text_key.startswith("s3://"):
+            # Delete full-text artifact (MinIO s3:// or local:// fallback) — non-fatal.
+            _artifact_schemes = ("s3://", "local://")
+            if parsed_text_key and any(parsed_text_key.startswith(s) for s in _artifact_schemes):
                 try:
                     _artifact_store.delete(parsed_text_key)
                 except Exception as exc:
-                    _del_logger.warning("MinIO artifact delete failed for %s: %s", parsed_text_key, exc)
+                    _del_logger.warning("Artifact delete failed for %s: %s", parsed_text_key, exc)
 
         background_tasks.add_task(scanner.scan, delete_fn=_scan_delete_fn)
         return {"status": "started"}

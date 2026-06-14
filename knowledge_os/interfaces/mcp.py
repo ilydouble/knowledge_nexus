@@ -261,14 +261,19 @@ def register_knowledge_os_tools(
                     _del_logger.warning("Milvus delete failed for %s: %s", uri, exc)
                     milvus_status = f"failed: {exc}"
 
-            # Delete MinIO artifact (non-fatal).
-            artifact_status = "skipped (not s3:// or not configured)"
-            if parsed_text_key and parsed_text_key.startswith("s3://") and artifact_store is not None:
+            # Delete artifact (MinIO s3:// or local filesystem local://) — non-fatal.
+            _artifact_schemes = ("s3://", "local://")
+            artifact_status = "skipped (no artifact key or store not configured)"
+            if (
+                parsed_text_key
+                and any(parsed_text_key.startswith(s) for s in _artifact_schemes)
+                and artifact_store is not None
+            ):
                 try:
                     artifact_store.delete(parsed_text_key)
                     artifact_status = "deleted"
                 except Exception as exc:
-                    _del_logger.warning("MinIO artifact delete failed for %s: %s", parsed_text_key, exc)
+                    _del_logger.warning("Artifact delete failed for %s: %s", parsed_text_key, exc)
                     artifact_status = f"failed: {exc}"
 
             evidence_result = EvidenceService(store, repository=get_repository()).purge(uri, mode="knowledge")

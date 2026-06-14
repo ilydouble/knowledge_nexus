@@ -6,5 +6,8 @@ __pycache__/
 node_modules/
 dist/
 .env
-
+downloads/
 *.log
+# Local artifact store — full parsed text written when MinIO is unavailable.
+# Contains potentially large / sensitive document content; never commit.
+data/artifacts/

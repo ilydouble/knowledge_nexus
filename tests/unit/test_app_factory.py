@@ -98,3 +98,29 @@ def test_settings_artifact_local_dir_readable_from_env(monkeypatch):
     monkeypatch.setenv("ARTIFACT_LOCAL_DIR", "/tmp/my_artifacts")
     settings = Settings.from_env()
     assert settings.artifact_local_dir == "/tmp/my_artifacts"
+
+
+# ── Path-traversal protection tests ──────────────────────────────────────────
+
+def test_local_artifact_store_path_traversal_is_blocked(tmp_path):
+    """A filename with ../ components must not escape the base_dir."""
+    store = LocalArtifactStore(base_dir=str(tmp_path))
+    uri = store.write("aabbccddeeff0011", "../../etc/passwd", "evil content")
+    # The written path must still be inside base_dir
+    path = uri[len("local://"):]
+    assert path.startswith(str(tmp_path)), (
+        f"File escaped base_dir: {path} is not under {tmp_path}"
+    )
+
+
+def test_local_artifact_store_subdir_in_filename_is_stripped(tmp_path):
+    """A filename like 'subdir/report.pdf' should only keep 'report.pdf'."""
+    store = LocalArtifactStore(base_dir=str(tmp_path))
+    uri = store.write("001122334455aabb", "subdir/report.pdf", "text")
+    path = uri[len("local://"):]
+    # The 'subdir' component must not appear after the hash dir
+    from pathlib import Path
+    parts = Path(path).parts
+    # hash dir is parts[-2]; filename is parts[-1]
+    assert parts[-1] == "report.pdf.txt"
+    assert "subdir" not in parts

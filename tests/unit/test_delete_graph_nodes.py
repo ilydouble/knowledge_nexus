@@ -110,13 +110,29 @@ def test_delete_graph_nodes_cleans_minio_artifact():
     assert result["artifact"] == "deleted"
 
 
-def test_delete_graph_nodes_artifact_skipped_when_no_s3_key():
-    """When parsed_text_key is not s3://, MinIO cleanup should be skipped."""
+def test_delete_graph_nodes_cleans_local_artifact():
+    """local:// parsed_text_key should also be cleaned during hard delete."""
     neo4j = MagicMock()
     artifact = MagicMock()
 
     repo = MagicMock()
-    repo.get_document.return_value = {"parsed_text_key": "local:///docs/report.pdf"}
+    local_key = "local:///app/data/artifacts/parsed-text/abcd1234/report.pdf.txt"
+    repo.get_document.return_value = {"parsed_text_key": local_key}
+
+    _, tools = _make_tools(neo4j=neo4j, artifact=artifact, repo=repo)
+    result = json.loads(tools["delete_graph_nodes"]("local:///docs/report.pdf"))
+
+    artifact.delete.assert_called_once_with(local_key)
+    assert result["artifact"] == "deleted"
+
+
+def test_delete_graph_nodes_artifact_skipped_when_no_key():
+    """When parsed_text_key is absent, artifact cleanup should be skipped."""
+    neo4j = MagicMock()
+    artifact = MagicMock()
+
+    repo = MagicMock()
+    repo.get_document.return_value = {"parsed_text_key": None}
 
     _, tools = _make_tools(neo4j=neo4j, artifact=artifact, repo=repo)
     result = json.loads(tools["delete_graph_nodes"]("local:///docs/report.pdf"))
