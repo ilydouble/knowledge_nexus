@@ -36,9 +36,15 @@ def _req(method: str, path: str, body=None, query=None):
         with urllib.request.urlopen(req, timeout=300) as resp:
             return json.loads(resp.read().decode() or "{}")
     except urllib.error.HTTPError as exc:
+        if exc.code == 502:
+            sys.exit(
+                f"HTTP 502: backend is temporarily unavailable (worker restarting). "
+                f"The backend process IS running — wait a few seconds and retry. "
+                f"Raw: {exc.read().decode()}"
+            )
         sys.exit(f"HTTP {exc.code}: {exc.read().decode()}")
     except urllib.error.URLError as exc:
-        sys.exit(f"Cannot reach {BASE} — is the backend running? ({exc.reason})")
+        sys.exit(f"Cannot reach {BASE} — backend is not running. ({exc.reason})")
 
 
 def _out(obj) -> None:

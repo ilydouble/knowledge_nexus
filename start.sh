@@ -67,7 +67,7 @@ cd "$REPO_DIR"
 
 # ① FastAPI 后端
 start_service "FastAPI 后端 (8000)" "api" \
-  conda run -n "$CONDA_ENV" uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+  conda run -n "$CONDA_ENV" uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 
 # ③ Web 控制台
 if [ "$NO_WEB" = false ]; then
