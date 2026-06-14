@@ -109,11 +109,11 @@ class GovernanceService:
 
     def bulk_accept(self, batch_id: str) -> dict[str, Any]:
         """Set all pending candidate items in a batch to 'accepted'."""
-        return self._bulk_set_status(batch_id, target="accepted", eligible={"pending", "reviewing"})
+        return self._bulk_set_status(batch_id, target="accepted", eligible={"candidate", "pending", "reviewing"})
 
     def bulk_reject(self, batch_id: str) -> dict[str, Any]:
         """Set all pending candidate items in a batch to 'rejected'."""
-        return self._bulk_set_status(batch_id, target="rejected", eligible={"pending", "reviewing"})
+        return self._bulk_set_status(batch_id, target="rejected", eligible={"candidate", "pending", "reviewing"})
 
     def _bulk_set_status(
         self, batch_id: str, *, target: str, eligible: set[str]
