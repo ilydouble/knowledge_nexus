@@ -30,7 +30,28 @@ tell the user to run `./start.sh` first.
 ## Core workflow
 
 Knowledge is written under a controlled pipeline. Nothing lands in the graph
-until a batch is **committed**. The normal sequence:
+until a batch is **committed**.
+
+### Fast path — one-shot ingest (recommended for most tasks)
+
+When the user just wants a document analysed and added to the graph immediately,
+use **`ingest`** — it does extract + accept-all + commit in a single command:
+
+```bash
+# Local file (most common)
+python3 kn ingest "./downloads/report.md"
+
+# With focus instructions
+python3 kn ingest "./downloads/report.md" --instructions "focus on risks and recommendations"
+
+# Preview what will be written before committing
+python3 kn ingest "./downloads/report.md" --review
+```
+
+`ingest` prints the batch id, entity/relation counts, and the commit result.
+Use it whenever the user says "extract / add / ingest this file into the knowledge base".
+
+### Manual step-by-step (use when the user wants to review candidates first)
 
 1. **Extract** candidates from a document:
    - Cloudreve: `python3 kn extract "cloudreve://path/to/report.pdf" --instructions "focus on risks"`
@@ -81,6 +102,7 @@ Hard delete — **irreversible**, physically removes graph data:
 | `dashboard` | counts, item-status breakdown, stale alerts |
 | `batches [--status S] [--source-uri U] [--limit N]` | list candidate batches |
 | `batch <id>` | show one batch and its items |
+| `ingest <path> [--instructions T] [--review]` | **one-shot**: extract + accept-all + commit a local file |
 | `extract <uri> [--instructions T] [--template ID]…` | auto-extract from cloudreve:// URI |
 | `extract-file <path> [--instructions T]` | upload and extract from local file |
 | `extract-path <path> [--instructions T]` | extract from server-side local path |
