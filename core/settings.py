@@ -35,7 +35,7 @@ class Settings:
     cloudreve_oauth_scope: str = "openid profile offline_access Files.Read"
     cloudreve_token_store_path: str = "data/runtime/cloudreve_tokens.json"
     cloudreve_oauth_config_path: str = "data/runtime/cloudreve_oauth_config.json"
-    database_url: str = "postgresql://admin:admin123@localhost:5433/smart_building"
+    database_url: str = "postgresql://admin:admin123@localhost:5433/nexus"
     redis_url: str = "redis://localhost:6380/0"
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
