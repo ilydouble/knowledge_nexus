@@ -249,11 +249,22 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         answer = agent_ask(request.question, _graph_qa_agent)
         return {"question": request.question, "answer": answer}
 
+    # MinIO artifact store — persists full parsed text in object storage.
+    # Falls back to NullArtifactStore if MinIO is unreachable.
+    from core.storage.artifact_store import build_artifact_store
+    _artifact_store = build_artifact_store(
+        endpoint=app_settings.minio_endpoint,
+        access_key=app_settings.minio_access_key,
+        secret_key=app_settings.minio_secret_key,
+        bucket=app_settings.minio_bucket,
+    )
+
     # Build CandidateExtractionPipeline — lazy, returns None if prerequisites missing.
     # Pass repo so the pipeline can persist semantic_documents / semantic_chunks.
     from knowledge_os.application.extraction_pipeline import build_candidate_extraction_pipeline
     _extraction_pipeline = build_candidate_extraction_pipeline(
-        app_settings, app.state.knowledge_os_store, repository=repo
+        app_settings, app.state.knowledge_os_store, repository=repo,
+        artifact_store=_artifact_store,
     )
 
     def get_extraction_pipeline():

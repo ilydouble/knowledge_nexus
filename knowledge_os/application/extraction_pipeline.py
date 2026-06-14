@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from core.services.document_classifier import DocumentClassifier
     from core.services.knowledge_extractor import KnowledgeExtractor
     from core.settings import Settings
+    from core.storage.artifact_store import ArtifactStore
 
 logger = logging.getLogger("knowledge_os.extraction_pipeline")
 
@@ -78,6 +79,7 @@ class CandidateExtractionPipeline:
         store: KnowledgeOSStore,
         repository: NexusRepository,
         cloudreve_client: CloudreveClient | None = None,
+        artifact_store: ArtifactStore | None = None,
     ) -> None:
         self.cloudreve_client = cloudreve_client
         self.content_parser = content_parser
@@ -85,6 +87,7 @@ class CandidateExtractionPipeline:
         self.extractor = extractor
         self.store = store
         self.repository = repository
+        self.artifact_store = artifact_store
 
     def run(
         self,
@@ -159,6 +162,21 @@ class CandidateExtractionPipeline:
             filename, doc_type, strategy, classification.confidence,
         )
 
+        # ── Write full parsed text to object storage ──────────────────────────
+        # parsed_text_key will be updated to s3:// if MinIO is available,
+        # otherwise it stays as the source URI (set later in upsert_document).
+        parsed_text_key: str | None = None
+        if self.artifact_store is not None:
+            content_hash_hex = hashlib.sha256(content).hexdigest()
+            try:
+                s3_uri = self.artifact_store.write(content_hash_hex, filename, parsed.text)
+                if s3_uri:  # NullArtifactStore returns ""
+                    parsed_text_key = s3_uri
+                    logger.info("Full parsed text stored at %s", s3_uri)
+            except Exception as exc:
+                warnings.append(f"Artifact store write failed (non-fatal): {exc}")
+                logger.warning("Artifact store write failed for %s: %s", uri, exc)
+
         # Build extraction text; prepend instructions as a hint for the LLM
         extraction_text = parsed.text
         if instructions:
@@ -192,9 +210,9 @@ class CandidateExtractionPipeline:
                 "size_bytes": len(content),
                 "doc_type": doc_type,
                 "chunk_count": chunk_count,
-                # Full parsed text lives at the source; Postgres only holds metadata.
-                # Future: replace with an s3:// MinIO key when object storage is wired in.
-                "parsed_text_key": uri,
+                # s3:// URI when MinIO is available; otherwise fall back to the
+                # source URI so the pointer is always populated.
+                "parsed_text_key": parsed_text_key or uri,
             })
 
             if knowledge.segment_results:
@@ -319,12 +337,21 @@ def build_candidate_extraction_pipeline(
     settings: Settings,
     store: KnowledgeOSStore,
     repository: Any | None = None,
+    artifact_store: Any | None = None,
 ) -> CandidateExtractionPipeline | None:
     """Build a pipeline from settings.  Returns None if LLM API key is missing.
 
     Cloudreve is optional: the pipeline is built regardless of whether a
     Cloudreve token is present.  Cloudreve downloads are only attempted when
     a ``cloudreve://`` URI is requested at runtime.
+
+    Parameters
+    ----------
+    artifact_store:
+        Optional ``ArtifactStore`` for persisting full parsed text to object
+        storage (MinIO).  When *None* or a ``NullArtifactStore``, the full
+        text is not persisted and ``parsed_text_key`` falls back to the source
+        URI.
     """
     from core.cloudreve.client import CloudreveClient
     from core.cloudreve.oauth import CloudreveOAuthTokenStore
@@ -368,4 +395,5 @@ def build_candidate_extraction_pipeline(
         store=store,
         repository=repo,
         cloudreve_client=cloudreve_client,
+        artifact_store=artifact_store,
     )

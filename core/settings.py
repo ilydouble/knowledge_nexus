@@ -46,6 +46,7 @@ class Settings:
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
+    minio_bucket: str = "knowledge-nexus"
     openai_api_key: str | None = None
     zhipu_api_key: str | None = None
     llm_provider: str = "zhipu"
@@ -101,6 +102,7 @@ class Settings:
             minio_endpoint=env("MINIO_ENDPOINT", cls.minio_endpoint) or cls.minio_endpoint,
             minio_access_key=env("MINIO_ACCESS_KEY", cls.minio_access_key) or cls.minio_access_key,
             minio_secret_key=env("MINIO_SECRET_KEY", cls.minio_secret_key) or cls.minio_secret_key,
+            minio_bucket=env("MINIO_BUCKET", cls.minio_bucket) or cls.minio_bucket,
             openai_api_key=env("OPENAI_API_KEY") or None,
             zhipu_api_key=env("ZHIPU_API_KEY") or env("BIGMODEL_API_KEY") or None,
             llm_provider=env("LLM_PROVIDER", cls.llm_provider) or cls.llm_provider,
