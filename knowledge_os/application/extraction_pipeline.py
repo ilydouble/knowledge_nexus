@@ -451,6 +451,8 @@ def build_candidate_extraction_pipeline(
             # hyper-extract flag; never enabled just because embeddings exist.
             embedding_service=embedding_service if hyper_enabled else None,
             template_top_k=settings.hyper_extract_runtime_max_templates,
+            single_pass_limit=settings.llm_single_pass_limit,
+            map_reduce_threshold=settings.llm_map_reduce_threshold,
         ),
         store=store,
         repository=repo,

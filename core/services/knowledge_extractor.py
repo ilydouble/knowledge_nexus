@@ -94,18 +94,20 @@ _EMERGENCY_FALLBACK_ONTOLOGY: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 # Map-Reduce thresholds
 # ---------------------------------------------------------------------------
-#: Characters fed to the LLM in single-pass mode.
-#: Raised from 12 000 → 16 000 so that documents up to ~16 KB are handled
-#: in a single LLM call (avoids 3+ serial calls for modest-sized files).
-_SINGLE_PASS_LIMIT: int = 16_000
+#: Fallback single-pass character limit used when Settings is not available
+#: (e.g. unit tests that construct KnowledgeExtractor directly without env).
+#: Modern LLMs (GLM-4-Flash, GLM-4.7, GPT-4o …) support 128 k-token context;
+#: 100 000 chars ≈ 50 k tokens, well within that budget.
+#: The live values come from Settings.llm_single_pass_limit which is
+#: overridable via LLM_SINGLE_PASS_LIMIT env var.
+_SINGLE_PASS_LIMIT: int = 100_000
 #: Character budget per segment in map-reduce mode.
 _SEGMENT_SIZE: int = 8_000
 #: Overlap between adjacent segments to preserve context across boundaries.
 _SEGMENT_OVERLAP: int = 400
-#: Documents longer than this switch from single-pass to map-reduce.
-#: Raised from 10 000 → 16 000 to match _SINGLE_PASS_LIMIT so documents
-#: below 16 KB never trigger the multi-call map-reduce path.
-_MAP_REDUCE_THRESHOLD: int = 16_000
+#: Fallback map-reduce threshold — see _SINGLE_PASS_LIMIT note above.
+#: Overridable via LLM_MAP_REDUCE_THRESHOLD env var / Settings.
+_MAP_REDUCE_THRESHOLD: int = 100_000
 #: Minimum entity confidence score; lower entries are dropped during merge.
 MIN_ENTITY_CONFIDENCE: float = 0.5
 
@@ -207,6 +209,8 @@ class KnowledgeExtractor:
         embedding_service: Any | None = None,
         semantic_dedup_threshold: float = 0.88,
         template_top_k: int = 3,
+        single_pass_limit: int | None = None,
+        map_reduce_threshold: int | None = None,
     ) -> None:
         """Create a KnowledgeExtractor.
 
@@ -229,6 +233,12 @@ class KnowledgeExtractor:
             template_top_k: Number of best-matching templates whose ontologies
                 are fused together (default 3). Only used when
                 *embedding_service* is provided.
+            single_pass_limit: Max characters sent to the LLM in one call.
+                Defaults to ``_SINGLE_PASS_LIMIT`` (100 000).  Override via
+                ``LLM_SINGLE_PASS_LIMIT`` env var or Settings.
+            map_reduce_threshold: Documents longer than this (chars) switch to
+                the map-reduce path.  Defaults to ``_MAP_REDUCE_THRESHOLD``
+                (100 000).  Override via ``LLM_MAP_REDUCE_THRESHOLD`` env var.
         """
         settings = Settings.from_env()
         self.api_key = api_key or settings.zhipu_api_key or settings.openai_api_key
@@ -240,6 +250,8 @@ class KnowledgeExtractor:
         self.two_stage_extraction = two_stage_extraction
         self.embedding_service = embedding_service
         self.semantic_dedup_threshold = semantic_dedup_threshold
+        self.single_pass_limit = single_pass_limit if single_pass_limit is not None else settings.llm_single_pass_limit
+        self.map_reduce_threshold = map_reduce_threshold if map_reduce_threshold is not None else settings.llm_map_reduce_threshold
         self._template_matcher: SemanticTemplateMatcher | None = (
             SemanticTemplateMatcher(embedding_service=embedding_service, top_k=template_top_k)
             if embedding_service is not None
@@ -285,9 +297,9 @@ class KnowledgeExtractor:
             return self._extract_tabular(text, ontology)
 
         # ── Standard LLM path ─────────────────────────────────────────────────
-        if len(text) <= _MAP_REDUCE_THRESHOLD:
-            # Single-pass: original behaviour, cap at _SINGLE_PASS_LIMIT
-            capped = text[:_SINGLE_PASS_LIMIT]
+        if len(text) <= self.map_reduce_threshold:
+            # Single-pass: send the whole document (capped at single_pass_limit).
+            capped = text[:self.single_pass_limit]
             prompt = self._build_extraction_prompt(capped, ontology, doc_type)
             result = self._call_chat_completion(prompt)
             knowledge = self._normalize_result(result, doc_type)

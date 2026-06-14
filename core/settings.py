@@ -59,6 +59,15 @@ class Settings:
     # Number of parallel LLM requests during map-reduce extraction.
     # Set to 1 to disable concurrency and avoid rate-limit errors.
     llm_max_workers: int = 1
+    # Single-pass context limit (chars).  Documents at or below this size are
+    # sent to the LLM in one call.  Defaults to 100 000 chars (~50 k tokens)
+    # which is well within the 128 k-token context of modern models such as
+    # GLM-4-Flash / GLM-4.7.  Set LLM_SINGLE_PASS_LIMIT to tune per deployment.
+    llm_single_pass_limit: int = 100_000
+    # Documents longer than this (chars) switch to the map-reduce path.
+    # Keep in sync with llm_single_pass_limit so there is no gap between the
+    # two thresholds.
+    llm_map_reduce_threshold: int = 100_000
     # Embedding settings (BigModel embedding-3)
     embedding_model: str = "embedding-3"
     embedding_dimensions: int = 2048
@@ -114,6 +123,8 @@ class Settings:
             llm_model=env("LLM_MODEL", cls.llm_model) or cls.llm_model,
             llm_base_url=env("LLM_BASE_URL", cls.llm_base_url) or cls.llm_base_url,
             llm_max_workers=int(env("LLM_MAX_WORKERS", str(cls.llm_max_workers)) or str(cls.llm_max_workers)),
+            llm_single_pass_limit=int(env("LLM_SINGLE_PASS_LIMIT", str(cls.llm_single_pass_limit)) or str(cls.llm_single_pass_limit)),
+            llm_map_reduce_threshold=int(env("LLM_MAP_REDUCE_THRESHOLD", str(cls.llm_map_reduce_threshold)) or str(cls.llm_map_reduce_threshold)),
             embedding_model=env("EMBEDDING_MODEL", cls.embedding_model) or cls.embedding_model,
             embedding_dimensions=int(env("EMBEDDING_DIMENSIONS", str(cls.embedding_dimensions)) or str(cls.embedding_dimensions)),
             embedding_base_url=env("EMBEDDING_BASE_URL", cls.embedding_base_url) or cls.embedding_base_url,

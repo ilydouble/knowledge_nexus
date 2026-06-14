@@ -378,12 +378,16 @@ def test_two_stage_makes_two_rounds_of_llm_calls():
                 call_log.append(fmt_name)
             return FakeResponse(node_payload if "node" in fmt_name else edge_payload)
 
+    # Use a text that is 2 segments long.  We set map_reduce_threshold to
+    # _SEGMENT_SIZE so that _SEGMENT_SIZE * 2 + 1 chars reliably triggers
+    # map-reduce regardless of the global default threshold.
     long_text = "x" * (_SEGMENT_SIZE * 2 + 1)
     extractor = KnowledgeExtractor(
         api_key="k", model="m",
         http_client=TwoRoundClient(),
         two_stage_extraction=True,
         max_workers=1,
+        map_reduce_threshold=_SEGMENT_SIZE,
     )
     result = extractor.extract(long_text)
 
