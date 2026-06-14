@@ -89,6 +89,22 @@ class PostgresRepository:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_document(self, uri: str) -> dict[str, Any] | None:
+        """Return a single semantic_documents row, or None if not found."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT uri, summary, tags, entities, status, requested_by,
+                       created_at, last_seen_at, content_hash, active_batch_id,
+                       filename, source_type, mime_type, size_bytes, doc_type, chunk_count,
+                       parsed_text_key
+                FROM semantic_documents
+                WHERE tenant_id = %s AND uri = %s
+                """,
+                (self.tenant_id, uri),
+            ).fetchone()
+        return dict(row) if row else None
+
     def list_chunks(self, document_uri: str) -> list[dict[str, Any]]:
         """Return semantic_chunks for a given document URI ordered by chunk_index."""
         with self._connect() as connection:

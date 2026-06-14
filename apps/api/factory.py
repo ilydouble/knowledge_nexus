@@ -265,6 +265,8 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
     _extraction_pipeline = build_candidate_extraction_pipeline(
         app_settings, app.state.knowledge_os_store, repository=repo,
         artifact_store=_artifact_store,
+        embedding_service=_embedding_service,
+        milvus_store=_milvus_store,
     )
 
     def get_extraction_pipeline():
@@ -276,6 +278,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         get_store=get_knowledge_os_store,
         get_extraction_pipeline=get_extraction_pipeline,
         neo4j_store=_neo4j_store,
+        artifact_store=_artifact_store,
     )
 
     # ------------------------------------------------------------------
@@ -307,6 +310,15 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         _del_logger = _log.getLogger(__name__)
 
         def _scan_delete_fn(uri: str) -> None:
+            # Fetch parsed_text_key before deleting from Postgres so we can clean MinIO.
+            parsed_text_key: str | None = None
+            try:
+                doc = repo.get_document(uri)
+                if doc:
+                    parsed_text_key = doc.get("parsed_text_key")
+            except Exception as exc:
+                _del_logger.warning("Could not fetch parsed_text_key for %s: %s", uri, exc)
+
             if _neo4j_store:
                 try:
                     _neo4j_store.delete_file(uri)
@@ -321,6 +333,12 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
                 repo.delete_document(uri)
             except Exception as exc:
                 _del_logger.warning("Repo delete failed for %s: %s", uri, exc)
+            # Delete full-text artifact from MinIO (non-fatal).
+            if parsed_text_key and parsed_text_key.startswith("s3://"):
+                try:
+                    _artifact_store.delete(parsed_text_key)
+                except Exception as exc:
+                    _del_logger.warning("MinIO artifact delete failed for %s: %s", parsed_text_key, exc)
 
         background_tasks.add_task(scanner.scan, delete_fn=_scan_delete_fn)
         return {"status": "started"}

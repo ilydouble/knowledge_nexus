@@ -23,6 +23,9 @@ class InMemoryRepository:
         self._documents.pop(uri, None)
         self._chunks.pop(uri, None)
 
+    def get_document(self, uri: str) -> dict[str, Any] | None:
+        return self._documents.get(uri)
+
     def list_documents(self, limit: int = 100) -> list[dict[str, Any]]:
         docs = sorted(
             self._documents.values(),

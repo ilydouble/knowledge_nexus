@@ -192,7 +192,46 @@ class GraphCommitService:
                     warnings.append(f"Neo4j node write failed ({item.payload.get('id')}): {exc}")
                     logger.warning("Neo4j node write failed: %s", exc)
 
-            # 2. Upsert edges — ensure stub nodes exist for referenced entities
+            # 2. Upsert a document node and MENTIONS edges for each accepted entity.
+            # This closes the Document→Entity loop so neighborhood() returns the
+            # entity subgraph when called with the source document URI.
+            if accepted_nodes and batch.source_uri:
+                doc_label = batch.source_uri.split("/")[-1] or batch.source_uri
+                doc_node = GraphNode(
+                    id=batch.source_uri,
+                    uri=batch.source_uri,
+                    label=doc_label,
+                    layer=KnowledgeLayer.L1,
+                    accessible=True,
+                )
+                try:
+                    self.neo4j_store.upsert_file_node(doc_node)
+                except Exception as exc:
+                    warnings.append(f"Neo4j doc node write failed ({batch.source_uri}): {exc}")
+                    logger.warning("Neo4j doc node write failed: %s", exc)
+
+                for item in accepted_nodes:
+                    payload = item.payload
+                    entity_id = str(payload.get("id") or payload.get("label") or item.id)
+                    entity_uri = f"entity://{entity_id}"
+                    mention_edge = GraphEdge(
+                        id=f"mention:{batch.source_uri}:{entity_id}",
+                        source=batch.source_uri,
+                        target=entity_id,
+                        relation="MENTIONS",
+                        layer=KnowledgeLayer.L1,
+                        owner_scope=batch.requested_by,
+                        source_file_uri=batch.source_uri,
+                        visibility="team",
+                        properties={"confidence": item.confidence},
+                    )
+                    try:
+                        self.neo4j_store.upsert_edge(mention_edge, batch.source_uri, entity_uri)
+                    except Exception as exc:
+                        warnings.append(f"MENTIONS edge write failed ({batch.source_uri}→{entity_id}): {exc}")
+                        logger.warning("MENTIONS edge write failed: %s", exc)
+
+            # 3. Upsert edges — ensure stub nodes exist for referenced entities
             for item in accepted_edges:
                 payload = item.payload
                 source_id = str(payload.get("source") or "")

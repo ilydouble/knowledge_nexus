@@ -23,6 +23,7 @@ from core.repositories.base import NexusRepository
 
 if TYPE_CHECKING:
     from knowledge_os.application.extraction_pipeline import CandidateExtractionPipeline
+    from core.storage.artifact_store import ArtifactStore
 
 
 class CandidatePatchRequest(BaseModel):
@@ -45,6 +46,7 @@ def register_knowledge_os_api(
     get_store: Callable[[], KnowledgeOSStore],
     get_extraction_pipeline: Callable[[], CandidateExtractionPipeline | None] | None = None,
     neo4j_store: Any | None = None,
+    artifact_store: ArtifactStore | None = None,
 ) -> None:
     """Register Knowledge OS admin routes on an existing FastAPI app."""
 
@@ -352,6 +354,64 @@ def register_knowledge_os_api(
         """List semantic_chunks for a given document URI."""
         chunks = repository.list_chunks(uri)
         return {"uri": uri, "chunks": chunks, "total": len(chunks)}
+
+    @app.get("/api/admin/documents/content")
+    def admin_get_document_content(uri: str) -> dict[str, Any]:
+        """Return the full parsed text for a document.
+
+        Resolution order:
+        1. If ``parsed_text_key`` starts with ``s3://`` and an artifact store is
+           configured, stream the text from object storage (MinIO/S3).
+        2. If the key starts with ``local://`` or ``file://``, read from the
+           local filesystem (server-side path).
+        3. Otherwise return a 404 / 422 with a descriptive error.
+        """
+        doc = repository.get_document(uri)
+        if doc is None:
+            raise HTTPException(status_code=404, detail=f"Document not found: {uri}")
+
+        key: str | None = doc.get("parsed_text_key")
+        if not key:
+            raise HTTPException(
+                status_code=422,
+                detail="Document has no parsed_text_key; full text unavailable.",
+            )
+
+        # ── MinIO / S3 ────────────────────────────────────────────────────
+        if key.startswith("s3://"):
+            if artifact_store is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Object storage not configured; cannot retrieve s3:// content.",
+                )
+            try:
+                text = artifact_store.read(key)
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"Object storage read failed: {exc}") from exc
+            return {"uri": uri, "parsed_text_key": key, "source": "object_storage", "text": text}
+
+        # ── Local filesystem ──────────────────────────────────────────────
+        if key.startswith("local://") or key.startswith("file://"):
+            raw_path = key.removeprefix("local://").removeprefix("file://")
+            import pathlib
+            path = pathlib.Path(raw_path)
+            if not path.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Local file referenced by parsed_text_key not found: {raw_path}",
+                )
+            try:
+                # Return raw bytes decoded as UTF-8; for binary files this may be imperfect.
+                text = path.read_bytes().decode("utf-8", errors="replace")
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Local file read failed: {exc}") from exc
+            return {"uri": uri, "parsed_text_key": key, "source": "local_filesystem", "text": text}
+
+        # ── Unknown scheme ────────────────────────────────────────────────
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot retrieve content for parsed_text_key scheme: {key!r}",
+        )
 
     # ── Phase 5: governance endpoints ─────────────────────────────────────────
 

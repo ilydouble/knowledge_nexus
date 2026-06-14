@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from core.services.knowledge_extractor import KnowledgeExtractor
     from core.settings import Settings
     from core.storage.artifact_store import ArtifactStore
+    from core.vector.milvus_store import MilvusVectorStore
 
 logger = logging.getLogger("knowledge_os.extraction_pipeline")
 
@@ -80,6 +81,8 @@ class CandidateExtractionPipeline:
         repository: NexusRepository,
         cloudreve_client: CloudreveClient | None = None,
         artifact_store: ArtifactStore | None = None,
+        embedding_service: Any | None = None,
+        milvus_store: MilvusVectorStore | None = None,
     ) -> None:
         self.cloudreve_client = cloudreve_client
         self.content_parser = content_parser
@@ -88,6 +91,8 @@ class CandidateExtractionPipeline:
         self.store = store
         self.repository = repository
         self.artifact_store = artifact_store
+        self.embedding_service = embedding_service
+        self.milvus_store = milvus_store
 
     def run(
         self,
@@ -216,9 +221,10 @@ class CandidateExtractionPipeline:
             })
 
             if knowledge.segment_results:
+                chunk_ids = [str(uuid.uuid4()) for _ in knowledge.segment_results]
                 chunks = [
                     {
-                        "id": str(uuid.uuid4()),
+                        "id": chunk_ids[i],
                         "chunk_index": seg.chunk_index,
                         # Store only a short preview — full text is at parsed_text_key.
                         "text": seg.text[:_CHUNK_PREVIEW_MAX],
@@ -228,7 +234,7 @@ class CandidateExtractionPipeline:
                         "char_start": seg.char_start,
                         "char_end": seg.char_end,
                     }
-                    for seg in knowledge.segment_results
+                    for i, seg in enumerate(knowledge.segment_results)
                 ]
                 self.repository.replace_chunks(uri, chunks)
 
@@ -238,6 +244,36 @@ class CandidateExtractionPipeline:
         except Exception as exc:
             warnings.append(f"Semantic archive write failed (non-fatal): {exc}")
             logger.warning("Semantic archive write failed for %s: %s", uri, exc)
+
+        # ── Embed chunks and upsert to Milvus (non-fatal) ────────────────────
+        if (
+            self.embedding_service is not None
+            and self.milvus_store is not None
+            and knowledge.segment_results
+        ):
+            try:
+                from core.vector.milvus_store import MilvusChunk
+                # Use full segment text for embeddings (not the 400-char preview).
+                # Milvus VARCHAR field allows up to 2048 chars.
+                _MILVUS_TEXT_MAX = 2048
+                seg_texts = [seg.text[:_MILVUS_TEXT_MAX] for seg in knowledge.segment_results]
+                vectors = self.embedding_service.embed_batch(seg_texts)
+                milvus_chunks = [
+                    MilvusChunk(
+                        chunk_id=str(uuid.uuid4()),
+                        uri=uri,
+                        text=seg_texts[i],
+                        created_by=requested_by,
+                        visibility="team",
+                        vector=vectors[i],
+                    )
+                    for i in range(len(knowledge.segment_results))
+                ]
+                self.milvus_store.upsert_chunks(milvus_chunks)
+                logger.info("Milvus upsert: %d chunks for %s", len(milvus_chunks), uri)
+            except Exception as exc:
+                warnings.append(f"Milvus upsert failed (non-fatal): {exc}")
+                logger.warning("Milvus upsert failed for %s: %s", uri, exc)
 
         # ── Convert ExtractedKnowledge → candidate items ──────────────────────
         candidate_entities = [_entity_to_candidate(e) for e in knowledge.entities]
@@ -338,6 +374,8 @@ def build_candidate_extraction_pipeline(
     store: KnowledgeOSStore,
     repository: Any | None = None,
     artifact_store: Any | None = None,
+    embedding_service: Any | None = None,
+    milvus_store: Any | None = None,
 ) -> CandidateExtractionPipeline | None:
     """Build a pipeline from settings.  Returns None if LLM API key is missing.
 
@@ -352,6 +390,13 @@ def build_candidate_extraction_pipeline(
         storage (MinIO).  When *None* or a ``NullArtifactStore``, the full
         text is not persisted and ``parsed_text_key`` falls back to the source
         URI.
+    embedding_service:
+        Optional embedding service (``BigModelEmbeddingService``).  When
+        provided, chunk texts are embedded and upserted into Milvus, and the
+        ``KnowledgeExtractor`` uses semantic template matching + dedup.
+    milvus_store:
+        Optional ``MilvusVectorStore``.  Chunks are upserted here after each
+        extraction run if *embedding_service* is also provided.
     """
     from core.cloudreve.client import CloudreveClient
     from core.cloudreve.oauth import CloudreveOAuthTokenStore
@@ -391,9 +436,15 @@ def build_candidate_extraction_pipeline(
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             max_workers=settings.llm_max_workers,
+            # Hyper-Extract: two-stage extraction and semantic template matching
+            # are enabled when hyper_extract_runtime_enabled is set in settings.
+            two_stage_extraction=settings.hyper_extract_runtime_enabled,
+            embedding_service=embedding_service,
         ),
         store=store,
         repository=repo,
         cloudreve_client=cloudreve_client,
         artifact_store=artifact_store,
+        embedding_service=embedding_service,
+        milvus_store=milvus_store,
     )

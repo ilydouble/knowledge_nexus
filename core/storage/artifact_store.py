@@ -31,6 +31,10 @@ class ArtifactStore(Protocol):
         """Return the full text for *uri* previously returned by ``write``."""
         ...
 
+    def delete(self, uri: str) -> None:
+        """Delete the artifact at *uri*.  No-op if it does not exist."""
+        ...
+
 
 class NullArtifactStore:
     """No-op store used when MinIO is not configured.
@@ -44,6 +48,9 @@ class NullArtifactStore:
 
     def read(self, uri: str) -> str:
         raise NotImplementedError(f"NullArtifactStore cannot retrieve content for {uri!r}")
+
+    def delete(self, uri: str) -> None:  # noqa: ARG002
+        pass  # nothing to delete
 
 
 class MinioArtifactStore:
@@ -123,6 +130,23 @@ class MinioArtifactStore:
         finally:
             response.close()
             response.release_conn()
+
+    def delete(self, uri: str) -> None:
+        """Remove the object at *uri* (``s3://<bucket>/<key>``) from MinIO.
+
+        Silently ignores missing objects or non-s3 URIs.
+        """
+        if not uri.startswith("s3://"):
+            return  # local:// or cloudreve:// — nothing to delete in MinIO
+        without_scheme = uri[len("s3://"):]
+        bucket, _, key = without_scheme.partition("/")
+        if not key:
+            return
+        try:
+            self._client.remove_object(bucket, key)
+            logger.debug("Artifact deleted: %s", uri)
+        except Exception as exc:
+            logger.warning("Could not delete artifact %s: %s", uri, exc)
 
 
 def build_artifact_store(

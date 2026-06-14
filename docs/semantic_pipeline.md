@@ -47,17 +47,29 @@ returns discovered file URIs; it does not auto-extract documents.
 
 ## Storage Responsibilities
 
-- Cloudreve remains the canonical source for original files.
+- Cloudreve is an optional plugin; local server paths and uploaded bytes work
+  without it.
 - `semantic_documents` stores file-level metadata, summary, tags, extracted
-  entities, content hash, MIME type, and document type.
-- `semantic_chunks` stores extracted text windows plus chunk summaries, tags,
-  entities, and character spans.
+  entities, content hash, MIME type, document type, and a `parsed_text_key`
+  column that points to the full text artifact.
+- `semantic_chunks` stores a **display preview** of up to 400 characters per
+  segment, plus per-chunk summaries, tags, entities, and character spans.
+  Full segment text is **not** stored in Postgres.
+- `parsed_text_key` holds the canonical pointer to the full parsed text:
+  `s3://<bucket>/<key>` when MinIO is reachable; otherwise the original source
+  URI (`local://…` or `cloudreve://…`).
+- MinIO / S3 (via `MinioArtifactStore`) stores the complete parsed text.  The
+  API endpoint `GET /api/admin/documents/content?uri=<uri>` reads it back.
 - `extraction_batches` and `candidate_graph_items` store uncommitted review
   candidates.
 - `graph_evidence` stores committed evidence provenance.
-- Neo4j stores the accepted graph projection.
-- Milvus is available as a vector store, but extracted chunks must be explicitly
-  embedded and upserted before vector search has useful data.
+- Neo4j stores the accepted graph projection.  Committing a batch writes
+  entity nodes, entity–entity edges, a document node, and `MENTIONS` edges
+  from the document to each entity so that `neighborhood(doc_uri)` returns
+  the full entity subgraph.
+- Milvus stores dense vector embeddings of chunk texts.  Embeddings are
+  produced and upserted automatically during extraction when an
+  `embedding_service` is configured.
 
 ## Review And Commit
 
