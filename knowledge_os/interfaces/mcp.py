@@ -25,6 +25,8 @@ def register_knowledge_os_tools(
     get_repository: Callable[[], NexusRepository],
     extraction_pipeline: CandidateExtractionPipeline | None = None,
     neo4j_store: Any | None = None,
+    milvus_store: Any | None = None,
+    artifact_store: Any | None = None,
 ) -> dict[str, Callable[..., str]]:
     """Register Pi-Agent-facing Knowledge OS tools and return them for tests."""
 
@@ -229,18 +231,53 @@ def register_knowledge_os_tools(
             uri: The cloudreve:// URI of the source document whose graph data
                  should be deleted.
         """
+        import logging as _log
+        _del_logger = _log.getLogger(__name__)
+
         if neo4j_store is None:
             return json.dumps(
                 {"error": "Neo4j is not available; cannot perform hard delete."},
                 ensure_ascii=False,
             )
         try:
+            # Fetch parsed_text_key before wiping Postgres so we can clean MinIO.
+            parsed_text_key: str | None = None
+            try:
+                doc = get_repository().get_document(uri)
+                if doc:
+                    parsed_text_key = doc.get("parsed_text_key")
+            except Exception as exc:
+                _del_logger.warning("Could not fetch parsed_text_key for %s: %s", uri, exc)
+
             neo4j_store.delete_file(uri)
+
+            # Clean Milvus vectors (non-fatal).
+            milvus_status = "skipped (not configured)"
+            if milvus_store is not None:
+                try:
+                    milvus_store.delete_chunks_by_uri(uri)
+                    milvus_status = "chunks deleted"
+                except Exception as exc:
+                    _del_logger.warning("Milvus delete failed for %s: %s", uri, exc)
+                    milvus_status = f"failed: {exc}"
+
+            # Delete MinIO artifact (non-fatal).
+            artifact_status = "skipped (not s3:// or not configured)"
+            if parsed_text_key and parsed_text_key.startswith("s3://") and artifact_store is not None:
+                try:
+                    artifact_store.delete(parsed_text_key)
+                    artifact_status = "deleted"
+                except Exception as exc:
+                    _del_logger.warning("MinIO artifact delete failed for %s: %s", parsed_text_key, exc)
+                    artifact_status = f"failed: {exc}"
+
             evidence_result = EvidenceService(store, repository=get_repository()).purge(uri, mode="knowledge")
             return json.dumps(
                 {
                     "deleted_uri": uri,
                     "neo4j": "nodes and edges removed",
+                    "milvus": milvus_status,
+                    "artifact": artifact_status,
                     "evidence": evidence_result,
                 },
                 ensure_ascii=False,

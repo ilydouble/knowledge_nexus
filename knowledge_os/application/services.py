@@ -195,6 +195,24 @@ class GraphCommitService:
             # 2. Upsert a document node and MENTIONS edges for each accepted entity.
             # This closes the Document→Entity loop so neighborhood() returns the
             # entity subgraph when called with the source document URI.
+            #
+            # Always clean stale MENTIONS whenever source_uri is present — even if
+            # the current batch has zero accepted nodes (e.g. all rejected or empty
+            # re-extraction).  Without this, a previous run's edges would persist
+            # indefinitely after a "blank" re-extraction.
+            if batch.source_uri:
+                # Remove stale MENTIONS *unconditionally* before writing the new set.
+                # Entity nodes themselves are preserved (other docs may reference them).
+                try:
+                    deleted = self.neo4j_store.delete_document_mentions(batch.source_uri)
+                    if deleted:
+                        logger.info(
+                            "Cleared %d stale MENTIONS edge(s) for %s", deleted, batch.source_uri
+                        )
+                except Exception as exc:
+                    warnings.append(f"MENTIONS cleanup failed (non-fatal): {exc}")
+                    logger.warning("MENTIONS cleanup failed for %s: %s", batch.source_uri, exc)
+
             if accepted_nodes and batch.source_uri:
                 doc_label = batch.source_uri.split("/")[-1] or batch.source_uri
                 doc_node = GraphNode(
@@ -209,19 +227,6 @@ class GraphCommitService:
                 except Exception as exc:
                     warnings.append(f"Neo4j doc node write failed ({batch.source_uri}): {exc}")
                     logger.warning("Neo4j doc node write failed: %s", exc)
-
-                # Remove stale MENTIONS from a previous extraction of the same
-                # document before writing the new accepted set.  Entity nodes
-                # themselves are preserved (other documents may still reference them).
-                try:
-                    deleted = self.neo4j_store.delete_document_mentions(batch.source_uri)
-                    if deleted:
-                        logger.info(
-                            "Cleared %d stale MENTIONS edge(s) for %s", deleted, batch.source_uri
-                        )
-                except Exception as exc:
-                    warnings.append(f"MENTIONS cleanup failed (non-fatal): {exc}")
-                    logger.warning("MENTIONS cleanup failed for %s: %s", batch.source_uri, exc)
 
                 for item in accepted_nodes:
                     payload = item.payload

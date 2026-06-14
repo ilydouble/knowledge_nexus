@@ -47,6 +47,7 @@ def register_knowledge_os_api(
     get_extraction_pipeline: Callable[[], CandidateExtractionPipeline | None] | None = None,
     neo4j_store: Any | None = None,
     artifact_store: ArtifactStore | None = None,
+    milvus_store: Any | None = None,
 ) -> None:
     """Register Knowledge OS admin routes on an existing FastAPI app."""
 
@@ -306,19 +307,57 @@ def register_knowledge_os_api(
 
         Irreversible: removes the file node, its relationships, any orphaned
         entity nodes, then purges the Postgres evidence so both stores stay in
-        sync.
+        sync.  Also cleans up Milvus vectors and MinIO artifact if configured.
         """
+        import logging as _log
+        _del_logger = _log.getLogger(__name__)
+
         if neo4j_store is None:
             raise HTTPException(
                 status_code=503,
                 detail="Neo4j is not available; cannot perform hard delete.",
             )
+
+        # Fetch parsed_text_key before wiping Postgres so we can clean MinIO.
+        parsed_text_key: str | None = None
+        try:
+            doc = repository.get_document(uri)
+            if doc:
+                parsed_text_key = doc.get("parsed_text_key")
+        except Exception as exc:
+            _del_logger.warning("Could not fetch parsed_text_key for %s: %s", uri, exc)
+
         try:
             neo4j_store.delete_file(uri)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        # Clean Milvus vectors (non-fatal).
+        milvus_deleted = 0
+        if milvus_store is not None:
+            try:
+                milvus_store.delete_chunks_by_uri(uri)
+                milvus_deleted = 1  # delete_chunks_by_uri has no return count
+            except Exception as exc:
+                _del_logger.warning("Milvus delete failed for %s: %s", uri, exc)
+
+        # Delete MinIO artifact (non-fatal).
+        artifact_deleted = False
+        if parsed_text_key and parsed_text_key.startswith("s3://") and artifact_store is not None:
+            try:
+                artifact_store.delete(parsed_text_key)
+                artifact_deleted = True
+            except Exception as exc:
+                _del_logger.warning("MinIO artifact delete failed for %s: %s", parsed_text_key, exc)
+
         evidence = EvidenceService(store, repository=repository).purge(uri, mode="knowledge")
-        return {"deleted_uri": uri, "neo4j": "nodes and edges removed", "evidence": evidence}
+        return {
+            "deleted_uri": uri,
+            "neo4j": "nodes and edges removed",
+            "milvus": "chunks deleted" if milvus_deleted else "skipped (not configured)",
+            "artifact": "deleted" if artifact_deleted else "skipped (not s3:// or not configured)",
+            "evidence": evidence,
+        }
 
     @app.delete("/api/admin/graph")
     def admin_clear_graph(
@@ -364,7 +403,11 @@ def register_knowledge_os_api(
            configured, stream the text from object storage (MinIO/S3).
         2. If the key starts with ``local://`` or ``file://``, read from the
            local filesystem (server-side path).
-        3. Otherwise return a 404 / 422 with a descriptive error.
+        3. If the key starts with ``cloudreve://``, return 410 — this is a
+           provenance pointer recorded when MinIO was unavailable; re-extract
+           with MinIO configured (or use a local source URI) to make content
+           retrievable.
+        4. Otherwise return a 422 with a descriptive error.
         """
         doc = repository.get_document(uri)
         if doc is None:
@@ -406,6 +449,23 @@ def register_knowledge_os_api(
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Local file read failed: {exc}") from exc
             return {"uri": uri, "parsed_text_key": key, "source": "local_filesystem", "text": text}
+
+        # ── Cloudreve scheme — provenance only, not retrievable ───────────
+        # When MinIO is unavailable during extraction, parsed_text_key may fall
+        # back to the original cloudreve:// URI as a provenance pointer.  We do
+        # not implement a Cloudreve download path here by design; the two systems
+        # are kept separate.  Re-extract with MinIO configured to obtain an s3://
+        # artifact, or use a local:// source path instead.
+        if key.startswith("cloudreve://"):
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    f"Full text not available: parsed_text_key {key!r} is a Cloudreve provenance "
+                    "pointer recorded when MinIO was unavailable during extraction.  "
+                    "To retrieve content, either configure MinIO and re-extract the document, "
+                    "or use a local file path as the source URI."
+                ),
+            )
 
         # ── Unknown scheme ────────────────────────────────────────────────
         raise HTTPException(

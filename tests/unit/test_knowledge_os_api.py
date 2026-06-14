@@ -16,15 +16,18 @@ def make_client():
     return TestClient(create_application(repository=InMemoryRepository()))
 
 
-def make_direct_client(neo4j_store):
-    """Build an app wired with a specific neo4j_store (real-or-None) for delete tests."""
+def make_direct_client(neo4j_store, milvus_store=None, artifact_store=None, repository=None):
+    """Build an app wired with specific stores for delete/content tests."""
     app = FastAPI()
     store = InMemoryKnowledgeOSStore()
+    repo = repository or InMemoryRepository()
     register_knowledge_os_api(
         app,
-        repository=InMemoryRepository(),
+        repository=repo,
         get_store=lambda: store,
         neo4j_store=neo4j_store,
+        milvus_store=milvus_store,
+        artifact_store=artifact_store,
     )
     return TestClient(app)
 
@@ -147,3 +150,99 @@ def test_extract_file_maps_llm_parse_error_to_500():
 
     assert response.status_code == 500
     assert "Extraction failed" in response.json()["detail"]
+
+
+# ── /api/admin/documents/content tests ───────────────────────────────────────
+
+class _MockRepo(InMemoryRepository):
+    """Extends InMemoryRepository so get_document() can return arbitrary data."""
+
+    def __init__(self, doc_data=None):
+        super().__init__()
+        self._doc_data = doc_data or {}
+
+    def get_document(self, uri: str):  # type: ignore[override]
+        return self._doc_data.get(uri)
+
+
+def test_content_endpoint_returns_410_for_cloudreve_key():
+    """parsed_text_key with cloudreve:// scheme should return 410 (provenance only)."""
+    uri = "local:///docs/report.pdf"
+    repo = _MockRepo({uri: {"parsed_text_key": "cloudreve://my/docs/report.pdf"}})
+    client = make_direct_client(neo4j_store=None, repository=repo)
+
+    response = client.get("/api/admin/documents/content", params={"uri": uri})
+
+    assert response.status_code == 410
+    detail = response.json()["detail"]
+    assert "cloudreve" in detail.lower()
+
+
+def test_content_endpoint_returns_404_for_unknown_document():
+    """When the document is not in the repository, expect 404."""
+    client = make_direct_client(neo4j_store=None)
+    response = client.get("/api/admin/documents/content", params={"uri": "local:///no/such.pdf"})
+    assert response.status_code == 404
+
+
+def test_content_endpoint_returns_422_for_missing_key():
+    """Document exists but has no parsed_text_key → 422."""
+    uri = "local:///docs/empty.pdf"
+    repo = _MockRepo({uri: {"parsed_text_key": None}})
+    client = make_direct_client(neo4j_store=None, repository=repo)
+
+    response = client.get("/api/admin/documents/content", params={"uri": uri})
+    assert response.status_code == 422
+
+
+def test_content_endpoint_reads_from_artifact_store_for_s3_key():
+    """s3:// key + artifact_store configured → returns text from object storage."""
+    uri = "local:///docs/report.pdf"
+    s3_key = "s3://knowledge-nexus/parsed-text/abcd/report.txt"
+    repo = _MockRepo({uri: {"parsed_text_key": s3_key}})
+    artifact = MagicMock()
+    artifact.read.return_value = "Full document text from MinIO."
+    client = make_direct_client(neo4j_store=None, artifact_store=artifact, repository=repo)
+
+    response = client.get("/api/admin/documents/content", params={"uri": uri})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "object_storage"
+    assert data["text"] == "Full document text from MinIO."
+    artifact.read.assert_called_once_with(s3_key)
+
+
+# ── DELETE /api/admin/documents/{uri}/graph with Milvus+MinIO cleanup ─────────
+
+def test_delete_graph_also_cleans_milvus():
+    """Hard delete via API should invoke milvus_store.delete_chunks_by_uri."""
+    neo4j = MagicMock()
+    milvus = MagicMock()
+    uri = "local:///docs/report.pdf"
+    repo = _MockRepo({uri: {"parsed_text_key": "local:///docs/report.pdf"}})
+    client = make_direct_client(neo4j_store=neo4j, milvus_store=milvus, repository=repo)
+
+    encoded = quote(uri, safe="")
+    response = client.delete(f"/api/admin/documents/{encoded}/graph")
+
+    assert response.status_code == 200
+    milvus.delete_chunks_by_uri.assert_called_once_with(uri)
+    assert "chunks deleted" in response.json()["milvus"]
+
+
+def test_delete_graph_cleans_minio_artifact_when_s3_key():
+    """Hard delete should call artifact_store.delete when parsed_text_key is s3://."""
+    neo4j = MagicMock()
+    artifact = MagicMock()
+    uri = "local:///docs/report.pdf"
+    s3_key = "s3://knowledge-nexus/parsed-text/abcd/report.txt"
+    repo = _MockRepo({uri: {"parsed_text_key": s3_key}})
+    client = make_direct_client(neo4j_store=neo4j, artifact_store=artifact, repository=repo)
+
+    encoded = quote(uri, safe="")
+    response = client.delete(f"/api/admin/documents/{encoded}/graph")
+
+    assert response.status_code == 200
+    artifact.delete.assert_called_once_with(s3_key)
+    assert response.json()["artifact"] == "deleted"

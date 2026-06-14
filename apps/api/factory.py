@@ -279,6 +279,7 @@ def create_application(repository: NexusRepository | None = None, settings: Sett
         get_extraction_pipeline=get_extraction_pipeline,
         neo4j_store=_neo4j_store,
         artifact_store=_artifact_store,
+        milvus_store=_milvus_store,
     )
 
     # ------------------------------------------------------------------
