@@ -59,6 +59,10 @@ class Settings:
     # Number of parallel LLM requests during map-reduce extraction.
     # Set to 1 to disable concurrency and avoid rate-limit errors.
     llm_max_workers: int = 1
+    # Maximum tokens in a single LLM response.  GLM-4.7 / GLM-4-Flash support
+    # up to 8192 output tokens; 4096 was the old conservative default which
+    # could truncate responses for documents with many entities.
+    llm_max_tokens: int = 8192
     # Single-pass context limit (chars).  Documents at or below this size are
     # sent to the LLM in one call.  Defaults to 100 000 chars (~50 k tokens)
     # which is well within the 128 k-token context of modern models such as
@@ -123,6 +127,7 @@ class Settings:
             llm_model=env("LLM_MODEL", cls.llm_model) or cls.llm_model,
             llm_base_url=env("LLM_BASE_URL", cls.llm_base_url) or cls.llm_base_url,
             llm_max_workers=int(env("LLM_MAX_WORKERS", str(cls.llm_max_workers)) or str(cls.llm_max_workers)),
+            llm_max_tokens=int(env("LLM_MAX_TOKENS", str(cls.llm_max_tokens)) or str(cls.llm_max_tokens)),
             llm_single_pass_limit=int(env("LLM_SINGLE_PASS_LIMIT", str(cls.llm_single_pass_limit)) or str(cls.llm_single_pass_limit)),
             llm_map_reduce_threshold=int(env("LLM_MAP_REDUCE_THRESHOLD", str(cls.llm_map_reduce_threshold)) or str(cls.llm_map_reduce_threshold)),
             embedding_model=env("EMBEDDING_MODEL", cls.embedding_model) or cls.embedding_model,

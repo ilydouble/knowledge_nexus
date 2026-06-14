@@ -211,6 +211,7 @@ class KnowledgeExtractor:
         template_top_k: int = 3,
         single_pass_limit: int | None = None,
         map_reduce_threshold: int | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         """Create a KnowledgeExtractor.
 
@@ -252,6 +253,10 @@ class KnowledgeExtractor:
         self.semantic_dedup_threshold = semantic_dedup_threshold
         self.single_pass_limit = single_pass_limit if single_pass_limit is not None else settings.llm_single_pass_limit
         self.map_reduce_threshold = map_reduce_threshold if map_reduce_threshold is not None else settings.llm_map_reduce_threshold
+        self.max_tokens = max_tokens if max_tokens is not None else settings.llm_max_tokens
+        # Holds per-call instructions set by extract(); used inside _get_system_prompt().
+        # Safe because the pipeline processes one document at a time.
+        self._runtime_instructions: str | None = None
         self._template_matcher: SemanticTemplateMatcher | None = (
             SemanticTemplateMatcher(embedding_service=embedding_service, top_k=template_top_k)
             if embedding_service is not None
@@ -265,6 +270,7 @@ class KnowledgeExtractor:
         ontology: dict | None = None,
         strategy: str = "llm_extract",
         filename: str = "",
+        instructions: str | None = None,
     ) -> ExtractedKnowledge:
         """Extract knowledge from text, routing by *strategy*.
 
@@ -275,16 +281,34 @@ class KnowledgeExtractor:
           map-reduce based on document length.
 
         Args:
-            text:     The text content to extract knowledge from.
-            doc_type: Category label (academic_paper, tabular_data, …).
-            ontology: Custom ontology (uses default if not provided).
-            strategy: Extraction strategy hint from the DocumentClassifier.
-            filename: Original filename; used by SemanticTemplateMatcher as
-                      an additional matching signal when no ontology is given.
+            text:         The text content to extract knowledge from.
+            doc_type:     Category label (academic_paper, tabular_data, …).
+            ontology:     Custom ontology (uses default if not provided).
+            strategy:     Extraction strategy hint from the DocumentClassifier.
+            filename:     Original filename; used by SemanticTemplateMatcher as
+                          an additional matching signal when no ontology is given.
+            instructions: Optional user guidance injected into the system prompt
+                          (e.g. "focus on risks and recommendations").  Keeps
+                          the document text clean of meta-instructions and avoids
+                          consuming document character budget.
 
         Returns:
             ExtractedKnowledge with entities, relations, and summary.
         """
+        self._runtime_instructions = instructions or None
+        try:
+            return self._extract_impl(text, doc_type, ontology, strategy, filename)
+        finally:
+            self._runtime_instructions = None
+
+    def _extract_impl(
+        self,
+        text: str,
+        doc_type: str,
+        ontology: dict | None,
+        strategy: str,
+        filename: str,
+    ) -> ExtractedKnowledge:
         if not self.api_key:
             return self._mock_extraction(text, doc_type)
 
@@ -406,7 +430,7 @@ Rules:
                 ],
                 "response_format": response_format,
                 "temperature": 0.2,
-                "max_tokens": 4096,
+                "max_tokens": self.max_tokens,
             },
             timeout=self.timeout,
         )
@@ -909,17 +933,22 @@ Rules:
         return _EMERGENCY_FALLBACK_ONTOLOGY
     
     def _get_system_prompt(self) -> str:
-        """Get system prompt for extraction."""
-        return """You are a knowledge extraction expert. Your task is to analyze documents and extract structured knowledge in JSON format.
-
-You must identify:
-1. **Summary**: A concise summary of the document (2-3 sentences)
-2. **Tags**: 5-10 relevant keywords or tags
-3. **Entities**: Important entities mentioned (people, organizations, projects, technologies, concepts, etc.)
-4. **Relations**: Relationships between entities
-5. **Key Points**: Important facts, conclusions, or insights
-
-Always respond with valid JSON following the specified schema."""
+        """Get system prompt for extraction, optionally including runtime instructions."""
+        base = (
+            "You are a knowledge extraction expert. Your task is to analyze documents "
+            "and extract structured knowledge in JSON format.\n\n"
+            "You must identify:\n"
+            "1. **Summary**: A concise summary of the document (2-3 sentences)\n"
+            "2. **Tags**: 5-10 relevant keywords or tags\n"
+            "3. **Entities**: Important entities mentioned (people, organizations, "
+            "projects, technologies, concepts, etc.)\n"
+            "4. **Relations**: Relationships between entities\n"
+            "5. **Key Points**: Important facts, conclusions, or insights\n\n"
+            "Always respond with valid JSON following the specified schema."
+        )
+        if self._runtime_instructions:
+            base += f"\n\n## User extraction instructions\n{self._runtime_instructions}"
+        return base
     
     def _build_extraction_prompt(self, text: str, ontology: dict, doc_type: str) -> str:
         """Build an extraction prompt that includes per-type entity descriptions,

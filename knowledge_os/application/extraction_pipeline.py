@@ -182,15 +182,15 @@ class CandidateExtractionPipeline:
                 warnings.append(f"Artifact store write failed (non-fatal): {exc}")
                 logger.warning("Artifact store write failed for %s: %s", uri, exc)
 
-        # Build extraction text; prepend instructions as a hint for the LLM
-        extraction_text = parsed.text
-        if instructions:
-            extraction_text = f"[Extraction instructions: {instructions}]\n\n{parsed.text}"
-
         # ── LLM extraction ────────────────────────────────────────────────────
+        # Instructions are passed to the extractor and injected into the system
+        # prompt, NOT prepended to the document text.  This keeps the full
+        # character budget available for the document and avoids confusing the
+        # LLM with meta-instructions mixed into the content.
         logger.info("LLM extraction for %s (strategy=%s)", uri, strategy)
         knowledge = self.extractor.extract(
-            extraction_text, doc_type, strategy=strategy, filename=filename
+            parsed.text, doc_type, strategy=strategy, filename=filename,
+            instructions=instructions,
         )
 
         if not knowledge.entities and not knowledge.relations:
@@ -455,6 +455,7 @@ def build_candidate_extraction_pipeline(
             template_top_k=settings.hyper_extract_runtime_max_templates,
             single_pass_limit=settings.llm_single_pass_limit,
             map_reduce_threshold=settings.llm_map_reduce_threshold,
+            max_tokens=settings.llm_max_tokens,
         ),
         store=store,
         repository=repo,
