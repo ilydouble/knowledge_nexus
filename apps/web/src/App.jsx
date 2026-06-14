@@ -274,6 +274,11 @@ function DocRow({ doc, onViewGraph }) {
           )}
           <div className="doc-uri">{doc.filename || doc.uri}</div>
           <div className="doc-uri" style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>{doc.uri}</div>
+          {doc.parsed_text_key && doc.parsed_text_key !== doc.uri && (
+            <div className="doc-uri" style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>
+              原文: {doc.parsed_text_key}
+            </div>
+          )}
           {tags.length > 0 && (
             <div className="doc-tags">
               {tags.map((t, i) => <span key={i} className="doc-tag">{t}</span>)}
@@ -343,7 +348,7 @@ function DocRow({ doc, onViewGraph }) {
                   ))}
                 </div>
               )}
-              <div className="chunk-text">{c.text?.slice(0, 300)}{c.text?.length > 300 ? "…" : ""}</div>
+              <div className="chunk-text">{c.text?.slice(0, 400)}{c.text?.length > 400 ? "…" : ""}</div>
             </div>
           ))}
         </div>

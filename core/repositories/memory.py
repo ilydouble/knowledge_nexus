@@ -58,6 +58,8 @@ class InMemoryRepository:
             "size_bytes": doc.get("size_bytes"),
             "doc_type": doc.get("doc_type"),
             "chunk_count": doc.get("chunk_count", 0),
+            # Pointer to full parsed text (source URI or future s3:// key).
+            "parsed_text_key": doc.get("parsed_text_key"),
         }
         self._documents[uri] = merged
 

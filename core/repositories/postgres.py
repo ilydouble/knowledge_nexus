@@ -78,7 +78,8 @@ class PostgresRepository:
                 """
                 SELECT uri, summary, tags, entities, status, requested_by,
                        created_at, last_seen_at, content_hash, active_batch_id,
-                       filename, source_type, mime_type, size_bytes, doc_type, chunk_count
+                       filename, source_type, mime_type, size_bytes, doc_type, chunk_count,
+                       parsed_text_key
                 FROM semantic_documents
                 WHERE tenant_id = %s
                 ORDER BY created_at DESC
@@ -113,9 +114,10 @@ class PostgresRepository:
                 INSERT INTO semantic_documents (
                     uri, tenant_id, summary, tags, entities, requested_by,
                     status, last_seen_at, content_hash, active_batch_id,
-                    filename, source_type, mime_type, size_bytes, doc_type, chunk_count
+                    filename, source_type, mime_type, size_bytes, doc_type, chunk_count,
+                    parsed_text_key
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (uri) DO UPDATE SET
                     summary        = EXCLUDED.summary,
                     tags           = EXCLUDED.tags,
@@ -129,7 +131,8 @@ class PostgresRepository:
                     mime_type      = EXCLUDED.mime_type,
                     size_bytes     = EXCLUDED.size_bytes,
                     doc_type       = EXCLUDED.doc_type,
-                    chunk_count    = EXCLUDED.chunk_count
+                    chunk_count    = EXCLUDED.chunk_count,
+                    parsed_text_key= EXCLUDED.parsed_text_key
                 """,
                 (
                     doc["uri"],
@@ -147,6 +150,7 @@ class PostgresRepository:
                     doc.get("size_bytes"),
                     doc.get("doc_type"),
                     doc.get("chunk_count", 0),
+                    doc.get("parsed_text_key"),
                 ),
             )
             connection.commit()

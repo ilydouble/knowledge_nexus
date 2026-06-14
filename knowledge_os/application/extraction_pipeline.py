@@ -31,6 +31,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("knowledge_os.extraction_pipeline")
 
+# Maximum characters stored in semantic_chunks.text (display preview only).
+# Full parsed text is NOT persisted in Postgres; callers re-read from the
+# source file referenced by semantic_documents.parsed_text_key.
+_CHUNK_PREVIEW_MAX: int = 400
+
 
 class ExtractionInputError(ValueError):
     """Raised for caller-side input problems (e.g. an unprocessable file).
@@ -187,6 +192,9 @@ class CandidateExtractionPipeline:
                 "size_bytes": len(content),
                 "doc_type": doc_type,
                 "chunk_count": chunk_count,
+                # Full parsed text lives at the source; Postgres only holds metadata.
+                # Future: replace with an s3:// MinIO key when object storage is wired in.
+                "parsed_text_key": uri,
             })
 
             if knowledge.segment_results:
@@ -194,7 +202,8 @@ class CandidateExtractionPipeline:
                     {
                         "id": str(uuid.uuid4()),
                         "chunk_index": seg.chunk_index,
-                        "text": seg.text,
+                        # Store only a short preview — full text is at parsed_text_key.
+                        "text": seg.text[:_CHUNK_PREVIEW_MAX],
                         "summary": seg.summary,
                         "tags": seg.tags,
                         "entities": seg.entities,

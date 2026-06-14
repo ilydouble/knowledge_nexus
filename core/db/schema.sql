@@ -19,13 +19,17 @@ ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS mime_type TEXT;
 ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS size_bytes INTEGER;
 ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS doc_type TEXT;
 ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS chunk_count INTEGER NOT NULL DEFAULT 0;
+-- Pointer to where the full parsed text lives (local URI, cloudreve URI, or future s3:// key).
+-- Postgres only stores the preview (text_preview ≤ 400 chars) in semantic_chunks.
+ALTER TABLE semantic_documents ADD COLUMN IF NOT EXISTS parsed_text_key TEXT;
 
 CREATE TABLE IF NOT EXISTS semantic_chunks (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL DEFAULT 'default',
     document_uri TEXT NOT NULL REFERENCES semantic_documents(uri) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
-    text TEXT NOT NULL
+    -- Display preview only (≤ 400 chars). Full text is referenced by semantic_documents.parsed_text_key.
+    text TEXT NOT NULL DEFAULT ''
 );
 
 ALTER TABLE semantic_chunks ADD COLUMN IF NOT EXISTS summary TEXT;
