@@ -1,30 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatNodeType, getNodeType, isDocumentNode } from "./graphData.js";
 
-const NODE_R = 18;          // file-node radius
-const ENTITY_R = 12;        // entity-node radius
+const NODE_R = 16;          // document-node radius
+const ENTITY_R = 10;        // entity-node radius
 const CLUSTER_R = 28;
 // Repulsion and center-pull are computed per-frame from canvas size (see useSim).
-const ATTRACTION = 0.04;
+const ATTRACTION = 0.018;
 const DAMPING = 0.78;
-const CENTER_PULL = 0.012;
-
-function isFileNode(node) {
-  return node.uri && (
-    node.uri.startsWith("cloudreve://") ||
-    node.uri.startsWith("file:") ||
-    node.uri.startsWith("newdrive://")
-  );
-}
+const CENTER_PULL = 0.006;
 
 function nodeRadius(node) {
   if (node.isCluster) return Math.max(CLUSTER_R, 16 + Math.min(node.count || 1, 50) * 0.6);
-  return isFileNode(node) ? NODE_R : ENTITY_R;
+  return isDocumentNode(node) ? NODE_R : ENTITY_R;
 }
 
 function nodeColor(node) {
   if (node.isCluster) return clusterColor(node.clusterType);
-  if (isFileNode(node)) return "#6366f1";
-  const type = (node.properties?.type || "").toLowerCase();
+  if (isDocumentNode(node)) return "#2563eb";
+  const type = getNodeType(node);
   return paletteColor(type) || "#94a3b8";
 }
 
@@ -33,6 +26,7 @@ function paletteColor(type) {
     researcher: "#f59e0b", person: "#f59e0b",
     institution: "#10b981", organization: "#10b981",
     method: "#3b82f6", concept: "#8b5cf6",
+    database: "#0f766e",
     dataset: "#ec4899", metric: "#14b8a6",
     component: "#f97316", api: "#06b6d4",
     technology: "#6366f1", tool: "#f59e0b", framework: "#8b5cf6",
@@ -41,18 +35,12 @@ function paletteColor(type) {
 }
 
 function clusterColor(type) {
-  if (type === "文档") return "#6366f1";
+  if (type === "document") return "#2563eb";
   return paletteColor(type) || "#94a3b8";
 }
 
 function clusterTypeLabel(node) {
-  if (isFileNode(node)) return "文档";
-  const type = node.properties?.type || "其他";
-  const known = [
-    "person", "researcher", "institution", "organization", "method", "concept",
-    "dataset", "metric", "component", "api", "technology", "tool", "framework",
-  ];
-  return known.includes(type.toLowerCase()) ? type : "其他";
+  return getNodeType(node);
 }
 
 function buildClusters(nodes, edges) {
@@ -131,10 +119,8 @@ function useSim(rawNodes, rawEdges, width, height) {
     velRef.current = vel;
 
     let alpha = 1.0;
-    // Scale repulsion with canvas area so the graph fills the space regardless
-    // of window size.  At 800×520 this ≈ 4160 (same ballpark as before);
-    // at 1400×700 it grows to ~9800 — nodes spread proportionally further.
-    const repulsion = width * height * 0.01;
+    const repulsion = width * height * 0.018;
+    const idealEdgeLength = Math.max(96, Math.min(220, Math.sqrt(width * height) / 4));
 
     function tick() {
       const p = posRef.current;
@@ -156,15 +142,35 @@ function useSim(rawNodes, rawEdges, width, height) {
         }
       }
 
-      // Attraction along edges
+      // Attraction along edges, with an ideal distance so connected clusters do
+      // not collapse into a single hairball.
       rawEdges.forEach(({ source, target }) => {
         if (!p[source] || !p[target]) return;
         const dx = p[target].x - p[source].x, dy = p[target].y - p[source].y;
-        v[source].x += dx * ATTRACTION * alpha;
-        v[source].y += dy * ATTRACTION * alpha;
-        v[target].x -= dx * ATTRACTION * alpha;
-        v[target].y -= dy * ATTRACTION * alpha;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (dist - idealEdgeLength) * ATTRACTION * alpha;
+        v[source].x += (dx / dist) * force;
+        v[source].y += (dy / dist) * force;
+        v[target].x -= (dx / dist) * force;
+        v[target].y -= (dy / dist) * force;
       });
+
+      // Collision spacing keeps labels and nodes legible after the force cools.
+      for (let i = 0; i < nodeList.length; i++) {
+        for (let j = i + 1; j < nodeList.length; j++) {
+          const aNode = nodeList[i], bNode = nodeList[j];
+          const a = aNode.id, b = bNode.id;
+          const dx = p[b].x - p[a].x, dy = p[b].y - p[a].y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const minDist = nodeRadius(aNode) + nodeRadius(bNode) + 38;
+          if (dist >= minDist) continue;
+          const push = ((minDist - dist) / dist) * 0.18 * alpha;
+          v[a].x -= dx * push;
+          v[a].y -= dy * push;
+          v[b].x += dx * push;
+          v[b].y += dy * push;
+        }
+      }
 
       // Center gravity — must also scale by alpha so it decays together with
       // repulsion/attraction; otherwise it dominates as alpha→0 and collapses
@@ -175,10 +181,15 @@ function useSim(rawNodes, rawEdges, width, height) {
       });
 
       // Integrate
-      nodeList.forEach(({ id }) => {
+      nodeList.forEach((node) => {
+        const id = node.id;
         v[id].x *= DAMPING;
         v[id].y *= DAMPING;
-        p[id] = { x: p[id].x + v[id].x, y: p[id].y + v[id].y };
+        const margin = nodeRadius(node) + 28;
+        p[id] = {
+          x: Math.max(margin, Math.min(width - margin, p[id].x + v[id].x)),
+          y: Math.max(margin, Math.min(height - margin, p[id].y + v[id].y)),
+        };
       });
 
       alpha *= 0.99;
@@ -196,7 +207,14 @@ function useSim(rawNodes, rawEdges, width, height) {
 }
 
 
-export default function GraphView({ nodes: rawNodes = [], edges: rawEdges = [], onNodeClick, clusterMode = false }) {
+export default function GraphView({
+  nodes: rawNodes = [],
+  edges: rawEdges = [],
+  onNodeClick,
+  clusterMode = false,
+  selectedNodeId = "",
+  focusNodeId = "",
+}) {
   const containerRef = useRef(null);
   const [dims, setDims] = useState({ width: 800, height: 520 });
   const [hovered, setHovered] = useState(null);
@@ -219,6 +237,7 @@ export default function GraphView({ nodes: rawNodes = [], edges: rawEdges = [], 
   }, [clusterMode, rawEdges, rawNodes]);
   const activeNodes = clusterInfo ? clusterInfo.nodes : rawNodes;
   const activeEdges = clusterInfo ? clusterInfo.edges : rawEdges;
+  const activeSelected = selectedNodeId || selected;
 
   const positions = useSim(activeNodes, activeEdges, dims.width, dims.height);
   // Merge sim positions with drag overrides
@@ -255,6 +274,15 @@ export default function GraphView({ nodes: rawNodes = [], edges: rawEdges = [], 
   }
 
   const nodeMap = Object.fromEntries(activeNodes.map((n) => [n.id, n]));
+  const connectedToFocus = new Set();
+  if (focusNodeId) {
+    connectedToFocus.add(focusNodeId);
+    for (const edge of activeEdges) {
+      if (edge.source === focusNodeId) connectedToFocus.add(edge.target);
+      if (edge.target === focusNodeId) connectedToFocus.add(edge.source);
+    }
+  }
+  const showAllLabels = activeNodes.length <= 36 || clusterMode;
 
   return (
     <div className="graphCanvas" ref={containerRef}>
@@ -283,10 +311,15 @@ export default function GraphView({ nodes: rawNodes = [], edges: rawEdges = [], 
           const p = mergedPos[node.id];
           if (!p) return null;
           const r = nodeRadius(node);
-          const isSelected = selected === node.id;
+          const isSelected = activeSelected === node.id;
           const isHov = hovered === node.id;
+          const isDimmed = focusNodeId && !connectedToFocus.has(node.id);
+          const showLabel = showAllLabels || isSelected || isHov || focusNodeId === node.id;
+          const label = node.isCluster
+            ? `${node.count} 个${formatNodeType(node.label)}`
+            : (node.label || node.id).slice(0, 22);
           return (
-            <g key={node.id} transform={`translate(${p.x},${p.y})`} style={{ cursor: "pointer" }}
+            <g key={node.id} transform={`translate(${p.x},${p.y})`} style={{ cursor: "pointer", opacity: isDimmed ? 0.28 : 1 }}
               onMouseEnter={() => setHovered(node.id)} onMouseLeave={() => setHovered(null)}
               onMouseDown={(e) => handleMouseDown(e, node.id)}
               onClick={() => { setSelected(node.id); onNodeClick?.(node); }}>
@@ -296,20 +329,24 @@ export default function GraphView({ nodes: rawNodes = [], edges: rawEdges = [], 
                     stroke={isSelected ? "#fff" : isHov ? "#e2e8f0" : nodeColor(node)}
                     strokeWidth={isSelected ? 3 : 2} strokeOpacity={0.7} />
                   <circle r={6} fill={nodeColor(node)} fillOpacity={0.85} />
-                  <text textAnchor="middle" dy={r + 14} fontSize={11} fill="#e2e8f0" fontWeight={700}
-                    style={{ pointerEvents: "none", userSelect: "none" }}>
-                    {node.count} 个{node.label}
-                  </text>
+                  {showLabel && (
+                    <text textAnchor="middle" dy={r + 14} fontSize={11} fill="#e2e8f0" fontWeight={700}
+                      style={{ pointerEvents: "none", userSelect: "none" }}>
+                      {label}
+                    </text>
+                  )}
                 </>
               ) : (
                 <>
                   <circle r={r} fill={nodeColor(node)}
                     stroke={isSelected ? "#fff" : isHov ? "#e2e8f0" : "none"}
                     strokeWidth={isSelected ? 2.5 : 1.5} fillOpacity={0.9} />
-                  <text textAnchor="middle" dy={r + 11} fontSize={10} fill="#e2e8f0"
-                    style={{ pointerEvents: "none", userSelect: "none" }}>
-                    {(node.label || node.id).slice(0, 20)}
-                  </text>
+                  {showLabel && (
+                    <text textAnchor="middle" dy={r + 11} fontSize={10} fill="#e2e8f0"
+                      style={{ pointerEvents: "none", userSelect: "none" }}>
+                      {label}
+                    </text>
+                  )}
                 </>
               )}
             </g>
