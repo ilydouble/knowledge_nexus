@@ -128,6 +128,24 @@ class Neo4jGraphStore:
             "relationships_deleted": summary.counters.relationships_deleted,
         }
 
+    def delete_document_mentions(self, source_uri: str) -> int:
+        """Delete all MENTIONS edges that originate from *source_uri*.
+
+        Entity nodes themselves are kept — they may be referenced by other
+        documents.  Returns the number of relationships deleted.
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (doc:NexusFile {uri: $uri})-[r:NEXUS_RELATION {relation: 'MENTIONS'}]->()
+                DELETE r
+                RETURN count(r) AS deleted
+                """,
+                uri=source_uri,
+            )
+            record = result.single()
+            return record["deleted"] if record else 0
+
     def delete_by_uri_for_tests(self, uri: str) -> None:
         with self.driver.session() as session:
             session.run("MATCH (n:NexusFile {uri: $uri}) DETACH DELETE n", uri=uri)

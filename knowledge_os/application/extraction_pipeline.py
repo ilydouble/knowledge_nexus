@@ -269,6 +269,9 @@ class CandidateExtractionPipeline:
                     )
                     for i in range(len(knowledge.segment_results))
                 ]
+                # Clear all previous vectors for this URI before inserting new
+                # ones so re-extraction never leaves stale chunks in Milvus.
+                self.milvus_store.delete_chunks_by_uri(uri)
                 self.milvus_store.upsert_chunks(milvus_chunks)
                 logger.info("Milvus upsert: %d chunks for %s", len(milvus_chunks), uri)
             except Exception as exc:
@@ -428,6 +431,12 @@ def build_candidate_extraction_pipeline(
     # Fall back to an in-memory no-op repository when none is provided
     repo = repository if repository is not None else InMemoryRepository()
 
+    # Semantic template matching and two-stage extraction are gated behind
+    # HYPER_EXTRACT_RUNTIME_ENABLED.  The embedding_service is ALSO passed to
+    # the pipeline itself (unconditionally) for Milvus chunk upsert — those
+    # are separate concerns.
+    hyper_enabled = settings.hyper_extract_runtime_enabled
+
     return CandidateExtractionPipeline(
         content_parser=ContentParserService(),
         classifier=DocumentClassifier(),
@@ -436,15 +445,18 @@ def build_candidate_extraction_pipeline(
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             max_workers=settings.llm_max_workers,
-            # Hyper-Extract: two-stage extraction and semantic template matching
-            # are enabled when hyper_extract_runtime_enabled is set in settings.
-            two_stage_extraction=settings.hyper_extract_runtime_enabled,
-            embedding_service=embedding_service,
+            two_stage_extraction=hyper_enabled,
+            # Semantic template matching requires embedding service AND the
+            # hyper-extract flag; never enabled just because embeddings exist.
+            embedding_service=embedding_service if hyper_enabled else None,
+            template_top_k=settings.hyper_extract_runtime_max_templates,
         ),
         store=store,
         repository=repo,
         cloudreve_client=cloudreve_client,
         artifact_store=artifact_store,
+        # Always pass embedding_service to the pipeline so Milvus upsert works
+        # regardless of whether Hyper-Extract is turned on.
         embedding_service=embedding_service,
         milvus_store=milvus_store,
     )

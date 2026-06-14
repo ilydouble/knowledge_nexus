@@ -210,6 +210,19 @@ class GraphCommitService:
                     warnings.append(f"Neo4j doc node write failed ({batch.source_uri}): {exc}")
                     logger.warning("Neo4j doc node write failed: %s", exc)
 
+                # Remove stale MENTIONS from a previous extraction of the same
+                # document before writing the new accepted set.  Entity nodes
+                # themselves are preserved (other documents may still reference them).
+                try:
+                    deleted = self.neo4j_store.delete_document_mentions(batch.source_uri)
+                    if deleted:
+                        logger.info(
+                            "Cleared %d stale MENTIONS edge(s) for %s", deleted, batch.source_uri
+                        )
+                except Exception as exc:
+                    warnings.append(f"MENTIONS cleanup failed (non-fatal): {exc}")
+                    logger.warning("MENTIONS cleanup failed for %s: %s", batch.source_uri, exc)
+
                 for item in accepted_nodes:
                     payload = item.payload
                     entity_id = str(payload.get("id") or payload.get("label") or item.id)
