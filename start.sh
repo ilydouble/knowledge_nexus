@@ -32,7 +32,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  Knowledge OS — 启动检查"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-for name in kg-postgres kg-neo4j kg-redis; do
+for name in kg-postgres kg-neo4j nexus-neo4j kg-redis; do
   if docker ps --filter "name=$name" --filter "status=running" --format '{{.Names}}' 2>/dev/null | grep -q "$name"; then
     ok "Docker: $name 运行中"
   else
