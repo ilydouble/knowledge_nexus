@@ -135,6 +135,17 @@ def cmd_extract_file(a):
         conn.close()
 
 
+def cmd_extract_path(a):
+    body = {"path": a.path, "requested_by": a.requested_by}
+    if a.instructions:
+        body["instructions"] = a.instructions
+    if a.source_uri:
+        body["source_uri"] = a.source_uri
+    if a.template:
+        body["template_ids"] = a.template
+    _out(_req("POST", "/api/admin/candidates/extract/path", body=body))
+
+
 def cmd_accept_all(a):
     _out(_req("POST", f"/api/admin/candidates/{a.batch_id}/accept-all"))
 
@@ -217,6 +228,13 @@ def build_parser() -> argparse.ArgumentParser:
     ef.add_argument("--instructions")
     ef.add_argument("--requested-by", dest="requested_by", default="pi-agent")
     ef.add_argument("--template", action="append"); ef.set_defaults(fn=cmd_extract_file)
+
+    ep = sub.add_parser("extract-path", help="extract from a local server-side path (no upload)")
+    ep.add_argument("path", help="absolute path on the server")
+    ep.add_argument("--source-uri", dest="source_uri", help="provenance URI (default: local://<path>)")
+    ep.add_argument("--instructions")
+    ep.add_argument("--requested-by", dest="requested_by", default="pi-agent")
+    ep.add_argument("--template", action="append"); ep.set_defaults(fn=cmd_extract_path)
 
     for name, fn in (("accept-all", cmd_accept_all), ("reject-all", cmd_reject_all),
                      ("preview", cmd_preview), ("commit", cmd_commit)):

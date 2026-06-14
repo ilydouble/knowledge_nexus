@@ -33,7 +33,9 @@ Knowledge is written under a controlled pipeline. Nothing lands in the graph
 until a batch is **committed**. The normal sequence:
 
 1. **Extract** candidates from a document:
-   `python3 kn extract "cloudreve://path/to/report.pdf" --instructions "focus on risks"`
+   - Cloudreve: `python3 kn extract "cloudreve://path/to/report.pdf" --instructions "focus on risks"`
+   - Local file (upload): `python3 kn extract-file "./report.pdf"`
+   - Local path (server-side): `python3 kn extract-path "/data/docs/report.pdf"`
    Returns a `batch_id` plus the proposed entities/relations.
 2. **Review** the batch — inspect items, then accept/reject:
    - `python3 kn batch <batch_id>` to see items and their ids
@@ -67,9 +69,10 @@ Hard delete — **irreversible**, physically removes graph data:
   and any orphaned entity nodes from Neo4j, then purge its Postgres evidence so
   both stores stay in sync. Only run after the user explicitly confirms the URI.
 
-> File-source operations (drive authorization, scanning Cloudreve so new files
-> are discovered) live in the separate **cloudreve-io** skill. Use that to get
-> a `cloudreve://…` URI, then bring it here to extract.
+> Cloudreve integration is optional. If Cloudreve is not configured, you can
+> still use `extract-file` (upload) and `extract-path` (local filesystem)
+> to analyze documents. For Cloudreve files, use the **cloudreve-io** skill
+> to browse and get a `cloudreve://…` URI.
 
 ## Command reference
 
@@ -78,7 +81,9 @@ Hard delete — **irreversible**, physically removes graph data:
 | `dashboard` | counts, item-status breakdown, stale alerts |
 | `batches [--status S] [--source-uri U] [--limit N]` | list candidate batches |
 | `batch <id>` | show one batch and its items |
-| `extract <uri> [--instructions T] [--template ID]…` | auto-extract candidates |
+| `extract <uri> [--instructions T] [--template ID]…` | auto-extract from cloudreve:// URI |
+| `extract-file <path> [--instructions T]` | upload and extract from local file |
+| `extract-path <path> [--instructions T]` | extract from server-side local path |
 | `review <id> [--accept ID]… [--reject ID]…` | accept/reject specific items |
 | `accept-all <id>` / `reject-all <id>` | bulk decision |
 | `preview <id>` | dry-run the graph diff |

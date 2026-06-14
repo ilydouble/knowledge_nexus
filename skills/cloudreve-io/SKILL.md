@@ -5,10 +5,10 @@ description: Use to manage the Cloudreve file source feeding Knowledge OS — ch
 
 # Cloudreve IO
 
-Manage the **file-source** side of the Knowledge OS pipeline. This skill is
-the "librarian": it authenticates to the drive, lets you browse and fetch files,
-and hands local file paths or `cloudreve://` URIs off to `analyzing-data` (for
-data analysis) or `knowledge-os` (for graph extraction).
+Manage the **Cloudreve file-source** (optional). This skill is
+the "librarian" for the cloud drive: it authenticates to the drive, lets you browse and fetch files,
+and hands `cloudreve://` URIs off to `knowledge-os` (for graph extraction).
+If Cloudreve is not configured, Knowledge OS remains fully functional via local file analysis.
 
 ## Prerequisite
 
